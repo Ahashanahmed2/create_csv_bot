@@ -4,7 +4,6 @@ import json
 import threading
 from datetime import datetime
 from flask import Flask, jsonify
-import telegram
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 
 app = Flask(__name__)
@@ -25,7 +24,6 @@ class StockDataBot:
                     print(f"Loaded {len(self.stock_data)} records")
         except Exception as e:
             print(f"Error: {e}")
-            self.stock_data = []
     
     def save_data(self):
         try:
