@@ -2,10 +2,11 @@ import os
 import csv
 import json
 import threading
+import asyncio
 from datetime import datetime
 from flask import Flask, jsonify
-import telegram
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # Flask app for uptime monitoring
 app = Flask(__name__)
@@ -126,9 +127,9 @@ class StockDataBot:
 # Global bot instance
 bot_instance = StockDataBot()
 
-# Telegram bot handlers
-def start(update, context):
-    update.message.reply_text(
+# Telegram bot handlers (async for new version)
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
         "🤖 Welcome to Stock Data Bot!\n\n"
         "Commands:\n"
         "/save - Save to CSV\n"
@@ -140,7 +141,7 @@ def start(update, context):
         "/help - Detailed help"
     )
 
-def help_command(update, context):
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = """
 📚 **Help Guide**
 
@@ -163,16 +164,16 @@ def help_command(update, context):
 10. Confidence Level
 11. Action Recommendation
 """
-    update.message.reply_text(help_text)
+    await update.message.reply_text(help_text)
 
-def save_command(update, context):
-    update.message.reply_text("💾 Saving...")
+async def save_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("💾 Saving...")
     result = bot_instance.save_to_csv()
-    update.message.reply_text(result)
+    await update.message.reply_text(result)
 
-def add_command(update, context):
+async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        update.message.reply_text(
+        await update.message.reply_text(
             "Usage: /add symbol|wave|subwave|entry|stop|tp1|tp2|rrr|score|confidence|action\n"
             "Example: /add BDCOM|Impulse (Wave 4)|Sub-wave C|25.80-26.30|24.90|27.50|29.00|1:1.8|72|High|Accumulate"
         )
@@ -181,29 +182,29 @@ def add_command(update, context):
     data_str = ' '.join(context.args)
     row_data = [item.strip() for item in data_str.split('|')]
     result = bot_instance.add_stock_data(row_data)
-    update.message.reply_text(result)
+    await update.message.reply_text(result)
 
-def delete_command(update, context):
+async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        update.message.reply_text("Usage: /delete index")
+        await update.message.reply_text("Usage: /delete index")
         return
     
     try:
         index = int(context.args[0])
         result = bot_instance.delete_stock_data(index)
-        update.message.reply_text(result)
+        await update.message.reply_text(result)
     except ValueError:
-        update.message.reply_text("Invalid index")
+        await update.message.reply_text("Invalid index")
 
-def list_command(update, context):
+async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     preview = bot_instance.get_data_preview()
-    update.message.reply_text(preview)
+    await update.message.reply_text(preview)
 
-def clear_command(update, context):
+async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = bot_instance.clear_all_data()
-    update.message.reply_text(result)
+    await update.message.reply_text(result)
 
-def status_command(update, context):
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_date = datetime.now().strftime("%d-%m-%Y")
     filename = f"/tmp/stock/{current_date}.csv"
     
@@ -219,12 +220,12 @@ File: {filename}
     else:
         status_text += "⏳ No file saved yet"
     
-    update.message.reply_text(status_text)
+    await update.message.reply_text(status_text)
 
-def echo(update, context):
-    update.message.reply_text("Use /start for commands")
+async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Use /start for commands")
 
-def error_handler(update, context):
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Log errors"""
     print(f"Update {update} caused error {context.error}")
 
@@ -236,26 +237,24 @@ def run_telegram_bot():
         return
     
     try:
-        # Create updater and dispatcher
-        updater = Updater(BOT_TOKEN, use_context=True)
-        dp = updater.dispatcher
+        # Create application
+        application = Application.builder().token(BOT_TOKEN).build()
         
         # Add handlers
-        dp.add_handler(CommandHandler("start", start))
-        dp.add_handler(CommandHandler("help", help_command))
-        dp.add_handler(CommandHandler("save", save_command))
-        dp.add_handler(CommandHandler("add", add_command))
-        dp.add_handler(CommandHandler("delete", delete_command))
-        dp.add_handler(CommandHandler("list", list_command))
-        dp.add_handler(CommandHandler("clear", clear_command))
-        dp.add_handler(CommandHandler("status", status_command))
-        dp.add_handler(MessageHandler(Filters.text & ~Filters.command, echo))
-        dp.add_error_handler(error_handler)
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CommandHandler("save", save_command))
+        application.add_handler(CommandHandler("add", add_command))
+        application.add_handler(CommandHandler("delete", delete_command))
+        application.add_handler(CommandHandler("list", list_command))
+        application.add_handler(CommandHandler("clear", clear_command))
+        application.add_handler(CommandHandler("status", status_command))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
+        application.add_error_handler(error_handler)
         
         print("🤖 Telegram Bot is starting...")
         # Start polling
-        updater.start_polling()
-        updater.idle()  # Keep the bot running
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
     except Exception as e:
         print(f"❌ Error starting bot: {e}")
 
