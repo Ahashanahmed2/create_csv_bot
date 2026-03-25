@@ -87,12 +87,10 @@ class StockDataBot:
             
             row_data = [item.strip() for item in line.split(',')]
             
-            # Handle Bengali text properly
             if len(row_data) != len(self.headers):
                 errors.append(f"লাইন {i+1}: {len(row_data)} টি কলাম (প্রয়োজন {len(self.headers)})")
                 continue
             
-            # Check if symbol already exists
             symbol = row_data[0]
             exists = False
             for existing in self.stock_data:
