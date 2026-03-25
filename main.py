@@ -3,7 +3,7 @@ import csv
 import json
 import threading
 from datetime import datetime
-from flask import Flask, request, jsonify
+from flask import Flask, jsonify
 import telegram
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 
@@ -236,7 +236,7 @@ def run_telegram_bot():
         return
     
     try:
-        # Create updater and dispatcher (using older API)
+        # Create updater and dispatcher
         updater = Updater(BOT_TOKEN, use_context=True)
         dp = updater.dispatcher
         
@@ -273,7 +273,7 @@ def home():
 def health():
     return jsonify({"status": "healthy"})
 
-@app.route('/status', methods=['GET'])
+@app.route('/status')
 def get_status():
     current_date = datetime.now().strftime("%d-%m-%Y")
     filename = f"/tmp/stock/{current_date}.csv"
