@@ -4,8 +4,8 @@ import json
 import threading
 from datetime import datetime
 from flask import Flask, request, jsonify
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+import telegram
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 
 # Flask app for uptime monitoring
 app = Flask(__name__)
@@ -125,11 +125,10 @@ class StockDataBot:
 
 # Global bot instance
 bot_instance = StockDataBot()
-telegram_application = None
 
 # Telegram bot handlers
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+def start(update, context):
+    update.message.reply_text(
         "🤖 Welcome to Stock Data Bot!\n\n"
         "Commands:\n"
         "/save - Save to CSV\n"
@@ -141,15 +140,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/help - Detailed help"
     )
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def help_command(update, context):
     help_text = """
 📚 **Help Guide**
 
 **Add Data:**
-`/add BDCOM|Impulse (Wave 4)|Sub-wave C|25.80-26.30|24.90|27.50|29.00|1:1.8|72|High|Accumulate`
+/add BDCOM|Impulse (Wave 4)|Sub-wave C|25.80-26.30|24.90|27.50|29.00|1:1.8|72|High|Accumulate
 
 **Delete:**
-`/delete 0`
+/delete 0
 
 **Data Format (11 columns):**
 1. Symbol
@@ -164,44 +163,47 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 10. Confidence Level
 11. Action Recommendation
 """
-    await update.message.reply_text(help_text)
+    update.message.reply_text(help_text)
 
-async def save_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("💾 Saving...")
+def save_command(update, context):
+    update.message.reply_text("💾 Saving...")
     result = bot_instance.save_to_csv()
-    await update.message.reply_text(result)
+    update.message.reply_text(result)
 
-async def add_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def add_command(update, context):
     if not context.args:
-        await update.message.reply_text("Usage: /add symbol|wave|subwave|entry|stop|tp1|tp2|rrr|score|confidence|action")
+        update.message.reply_text(
+            "Usage: /add symbol|wave|subwave|entry|stop|tp1|tp2|rrr|score|confidence|action\n"
+            "Example: /add BDCOM|Impulse (Wave 4)|Sub-wave C|25.80-26.30|24.90|27.50|29.00|1:1.8|72|High|Accumulate"
+        )
         return
     
     data_str = ' '.join(context.args)
     row_data = [item.strip() for item in data_str.split('|')]
     result = bot_instance.add_stock_data(row_data)
-    await update.message.reply_text(result)
+    update.message.reply_text(result)
 
-async def delete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def delete_command(update, context):
     if not context.args:
-        await update.message.reply_text("Usage: /delete index")
+        update.message.reply_text("Usage: /delete index")
         return
     
     try:
         index = int(context.args[0])
         result = bot_instance.delete_stock_data(index)
-        await update.message.reply_text(result)
+        update.message.reply_text(result)
     except ValueError:
-        await update.message.reply_text("Invalid index")
+        update.message.reply_text("Invalid index")
 
-async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def list_command(update, context):
     preview = bot_instance.get_data_preview()
-    await update.message.reply_text(preview)
+    update.message.reply_text(preview)
 
-async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def clear_command(update, context):
     result = bot_instance.clear_all_data()
-    await update.message.reply_text(result)
+    update.message.reply_text(result)
 
-async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def status_command(update, context):
     current_date = datetime.now().strftime("%d-%m-%Y")
     filename = f"/tmp/stock/{current_date}.csv"
     
@@ -217,35 +219,45 @@ File: {filename}
     else:
         status_text += "⏳ No file saved yet"
     
-    await update.message.reply_text(status_text)
+    update.message.reply_text(status_text)
 
-async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Use /start for commands")
+def echo(update, context):
+    update.message.reply_text("Use /start for commands")
+
+def error_handler(update, context):
+    """Log errors"""
+    print(f"Update {update} caused error {context.error}")
 
 def run_telegram_bot():
-    """Run Telegram bot in a separate thread"""
-    global telegram_application
-    
+    """Run Telegram bot"""
     BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not BOT_TOKEN:
         print("❌ TELEGRAM_BOT_TOKEN not set!")
         return
     
-    telegram_application = Application.builder().token(BOT_TOKEN).build()
-    
-    # Add handlers
-    telegram_application.add_handler(CommandHandler("start", start))
-    telegram_application.add_handler(CommandHandler("help", help_command))
-    telegram_application.add_handler(CommandHandler("save", save_command))
-    telegram_application.add_handler(CommandHandler("add", add_command))
-    telegram_application.add_handler(CommandHandler("delete", delete_command))
-    telegram_application.add_handler(CommandHandler("list", list_command))
-    telegram_application.add_handler(CommandHandler("clear", clear_command))
-    telegram_application.add_handler(CommandHandler("status", status_command))
-    telegram_application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
-    
-    print("🤖 Telegram Bot is starting...")
-    telegram_application.run_polling(allowed_updates=Update.ALL_TYPES)
+    try:
+        # Create updater and dispatcher (using older API)
+        updater = Updater(BOT_TOKEN, use_context=True)
+        dp = updater.dispatcher
+        
+        # Add handlers
+        dp.add_handler(CommandHandler("start", start))
+        dp.add_handler(CommandHandler("help", help_command))
+        dp.add_handler(CommandHandler("save", save_command))
+        dp.add_handler(CommandHandler("add", add_command))
+        dp.add_handler(CommandHandler("delete", delete_command))
+        dp.add_handler(CommandHandler("list", list_command))
+        dp.add_handler(CommandHandler("clear", clear_command))
+        dp.add_handler(CommandHandler("status", status_command))
+        dp.add_handler(MessageHandler(Filters.text & ~Filters.command, echo))
+        dp.add_error_handler(error_handler)
+        
+        print("🤖 Telegram Bot is starting...")
+        # Start polling
+        updater.start_polling()
+        updater.idle()  # Keep the bot running
+    except Exception as e:
+        print(f"❌ Error starting bot: {e}")
 
 # Flask routes for uptime monitoring
 @app.route('/')
@@ -273,11 +285,6 @@ def get_status():
         "file_exists": file_exists,
         "file_path": filename if file_exists else None
     })
-
-@app.route('/save', methods=['POST'])
-def save_csv():
-    result = bot_instance.save_to_csv()
-    return jsonify({"result": result})
 
 def main():
     """Main function to run both Flask and Telegram bot"""
