@@ -37,16 +37,13 @@ class StockDataBot:
             return False
     
     def add_csv_data(self, csv_text):
-        """CSV ফরম্যাটে ডাটা যোগ করুন"""
         lines = csv_text.strip().split('\n')
         added = 0
         
         for line in lines:
             if not line.strip():
                 continue
-            
             row = [item.strip() for item in line.split(',')]
-            
             if len(row) >= 2:
                 self.stock_data.append(row)
                 added += 1
@@ -98,14 +95,12 @@ class StockDataBot:
 
 bot = StockDataBot()
 
-# Telegram handlers
 def start(update, context):
     update.message.reply_text(
         "🤖 স্টক ডাটা বট\n\n"
         "কীভাবে ব্যবহার করবেন:\n\n"
         "1️⃣ CSV ফরম্যাটে ডাটা পাঠান:\n"
-        "BDCOM,Impulse (Wave 4),Sub-wave C,25.80-26.30,24.90,27.50,29.00,1:1.8,72,High,Accumulate\n"
-        "KTL,Corrective (Wave 2),Sub-wave B,9.00-9.40,8.70,10.20,11.50,1:2.0,80,Very High,BUY\n\n"
+        "BDCOM,Impulse (Wave 4),Sub-wave C,25.80-26.30,24.90,27.50,29.00,1:1.8,72,High,Accumulate\n\n"
         "2️⃣ কমান্ড:\n"
         "/list - সব ডাটা দেখুন\n"
         "/save - CSV ফাইলে সেভ করুন\n"
@@ -162,9 +157,6 @@ def status_command(update, context):
     status += f"✅ ফাইল আছে: {'হ্যাঁ' if exists else 'না'}"
     
     update.message.reply_text(status)
-
-def echo(update, context):
-    update.message.reply_text("CSV ফরম্যাটে ডাটা পাঠান বা /start দেখুন।")
 
 def run_bot():
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
