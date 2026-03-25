@@ -2,7 +2,6 @@ services:
   - type: web
     name: create_csv_stock
     runtime: python
-    region: singapore
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
