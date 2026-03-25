@@ -344,3 +344,351 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📝 **ডাটা যোগ করার নিয়ম**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CSV ফরম্যাটে ডাটা পাঠান:
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📁 **ফাইল ম্যানেজমেন্ট**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• `/files` - সব CSV ফাইলের তালিকা দেখুন
+• `/view 25-03-2026` - নির্দিষ্ট ফাইল দেখুন
+• `/deletefile 25-03-2026` - ফাইল ডিলিট করুন
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 **সিম্বল ম্যানেজমেন্ট**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• `/symbols 25-03-2026` - ফাইলের সিম্বল দেখুন
+• `/deletesymbol 25-03-2026 BDCOM` - সিম্বল ডিলিট
+• `/search BDCOM` - সব ফাইলে সিম্বল খুঁজুন
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 **আজকের ডাটা**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• `/list` - আজকের ডাটা দেখুন
+• `/clear` - আজকের সব ডাটা মুছুন
+• `/yesclear` - ক্লিয়ার কনফার্ম
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ℹ️ **অন্যান্য**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• `/status` - বটের স্ট্যাটাস দেখুন
+• `/cancel` - চলমান অপারেশন বাতিল করুন
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📂 **স্টোরেজ লোকেশন**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Hugging Face: `ahashanahmed/csv/stock/`
+ফাইল ফরম্যাট: `stock/DD-MM-YYYY.csv`
+
+💡 **টিপস:**
+• তারিখ ফরম্যাট: DD-MM-YYYY (যেমন: 25-03-2026)
+• সিম্বল কেস সেনসিটিভ নয় (BDCOM = bdcom)
+"""
+    await update.message.reply_text(help_text, parse_mode='Markdown')
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    
+    if text.startswith('/'):
+        return
+    
+    if ',' in text:
+        await update.message.reply_text("⏳ ডাটা যোগ করা হচ্ছে...")
+        result = bot.add_csv_data(text)
+        await update.message.reply_text(result)
+    else:
+        await update.message.reply_text(
+            "❌ CSV ফরম্যাটে ডাটা পাঠান। সাহায্যের জন্য `/help` দেখুন।\n\n"
+            "উদাহরণ:\n"
+            "`BDCOM,Impulse (Wave 4),Sub-wave C,25.80-26.30,24.90,27.50,29.00,1:1.8,72,High,Accumulate`",
+            parse_mode='Markdown'
+        )
+
+async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    preview = bot.get_preview()
+    await update.message.reply_text(preview, parse_mode='Markdown')
+
+async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("⚠️ আজকের সব ডাটা মুছে যাবে। `/yesclear` দিয়ে কনফার্ম করুন।", parse_mode='Markdown')
+    context.user_data['confirm'] = True
+
+async def yesclear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get('confirm'):
+        result = bot.clear_current_data()
+        await update.message.reply_text(result)
+        context.user_data['confirm'] = False
+    else:
+        await update.message.reply_text("❌ আগে `/clear` দিন।", parse_mode='Markdown')
+
+async def files_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    dates = hf_manager.get_all_csv_files()
+    
+    if not dates:
+        await update.message.reply_text("📭 কোনো CSV ফাইল নেই।")
+        return
+    
+    file_list = "\n".join([f"📄 `{date}.csv`" for date in dates])
+    await update.message.reply_text(
+        f"📁 **CSV ফাইলের তালিকা ({len(dates)} টি):**\n\n{file_list}\n\n"
+        f"ফাইল দেখতে: `/view [তারিখ]`\n"
+        f"ফাইল ডিলিট: `/deletefile [তারিখ]`",
+        parse_mode='Markdown'
+    )
+
+async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("❌ তারিখ দিন। উদাহরণ: `/view 25-03-2026`")
+        return
+    
+    date = fix_date_format(context.args[0])
+    status_msg = await update.message.reply_text(f"⏳ `{date}.csv` ফাইল খুঁজছি...", parse_mode='Markdown')
+    
+    data = hf_manager.read_csv_file(date)
+    
+    if data is None:
+        dates = hf_manager.get_all_csv_files()
+        if dates:
+            file_list = "\n".join([f"• `{d}.csv`" for d in dates])
+            await status_msg.edit_text(
+                f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।\n\n"
+                f"📁 **আপনার ফাইলগুলি:**\n{file_list}",
+                parse_mode='Markdown'
+            )
+        else:
+            await status_msg.edit_text(f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।", parse_mode='Markdown')
+        return
+    
+    if not data:
+        await status_msg.edit_text(f"📭 `{date}.csv` ফাইলটি খালি।", parse_mode='Markdown')
+        return
+    
+    # Check if first row is header
+    start_idx = 0
+    if data and data[0] and len(data[0]) > 0 and ('symbol' in data[0][0].lower() or 'সিম্বল' in data[0][0]):
+        start_idx = 1
+    
+    actual_data = data[start_idx:]
+    
+    preview = f"📊 **{date}.csv - মোট {len(actual_data)} টি রেকর্ড:**\n\n"
+    for i, row in enumerate(actual_data[:10]):
+        short = ', '.join(row[:3])
+        if len(row) > 3:
+            short += "..."
+        preview += f"{i+1}. {short}\n"
+    
+    if len(actual_data) > 10:
+        preview += f"\n... এবং {len(actual_data) - 10} টি বেশি"
+    
+    preview += f"\n\n💡 সিম্বল দেখতে: `/symbols {date}`"
+    
+    await status_msg.edit_text(preview, parse_mode='Markdown')
+
+async def deletefile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("❌ তারিখ দিন। উদাহরণ: `/deletefile 25-03-2026`")
+        return
+    
+    date = fix_date_format(context.args[0])
+    context.user_data['delete_file'] = date
+    await update.message.reply_text(
+        f"⚠️ আপনি কি নিশ্চিত? `{date}.csv` ফাইলটি স্থায়ীভাবে মুছে যাবে!\n\n"
+        f"✅ হ্যাঁ হলে: `/confirmdelete`\n"
+        f"❌ না হলে: `/cancel`",
+        parse_mode='Markdown'
+    )
+
+async def confirmdelete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    date = context.user_data.get('delete_file')
+    if not date:
+        await update.message.reply_text("❌ আগে `/deletefile` দিন।")
+        return
+    
+    success, msg = hf_manager.delete_csv_file(date)
+    await update.message.reply_text(msg)
+    context.user_data['delete_file'] = None
+
+async def symbols_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    date = fix_date_format(context.args[0]) if context.args else bot.current_date
+    status_msg = await update.message.reply_text(f"⏳ `{date}.csv` ফাইল থেকে সিম্বল খুঁজছি...", parse_mode='Markdown')
+    
+    data = hf_manager.read_csv_file(date)
+    
+    if data is None:
+        dates = hf_manager.get_all_csv_files()
+        if dates:
+            file_list = "\n".join([f"• `{d}.csv`" for d in dates])
+            await status_msg.edit_text(
+                f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।\n\n"
+                f"📁 **আপনার ফাইলগুলি:**\n{file_list}",
+                parse_mode='Markdown'
+            )
+        else:
+            await status_msg.edit_text(f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।", parse_mode='Markdown')
+        return
+    
+    if not data:
+        await status_msg.edit_text(f"📭 `{date}.csv` ফাইলটি খালি।", parse_mode='Markdown')
+        return
+    
+    # Check if first row is header
+    start_idx = 0
+    if data and data[0] and len(data[0]) > 0 and ('symbol' in data[0][0].lower() or 'সিম্বল' in data[0][0]):
+        start_idx = 1
+    
+    symbols = [row[0] for row in data[start_idx:] if row and len(row) > 0]
+    symbol_list = "\n".join([f"• `{s}`" for s in symbols])
+    
+    await status_msg.edit_text(
+        f"📋 **{date}.csv - সিম্বল লিস্ট ({len(symbols)} টি):**\n\n{symbol_list}\n\n"
+        f"💡 সিম্বল ডিলিট: `/deletesymbol {date} [সিম্বল]`",
+        parse_mode='Markdown'
+    )
+
+async def deletesymbol_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "❌ তারিখ এবং সিম্বল দিন। উদাহরণ: `/deletesymbol 25-03-2026 BDCOM`",
+            parse_mode='Markdown'
+        )
+        return
+    
+    date = fix_date_format(context.args[0])
+    symbol = context.args[1].upper()
+    
+    await update.message.reply_text(f"⏳ '{symbol}' ডিলিট করা হচ্ছে...")
+    success, msg = hf_manager.delete_symbol_from_file(date, symbol)
+    await update.message.reply_text(msg)
+
+async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """সব ফাইলে সিম্বল খুঁজুন - উন্নত ভার্সন"""
+    if not context.args:
+        await update.message.reply_text("❌ সিম্বল দিন। উদাহরণ: `/search BDCOM`")
+        return
+    
+    search_symbol = context.args[0].upper()
+    status_msg = await update.message.reply_text(f"🔍 '{search_symbol}' খুঁজছি... দয়া করে অপেক্ষা করুন।")
+    
+    try:
+        dates = hf_manager.get_all_csv_files()
+        
+        if not dates:
+            await status_msg.edit_text("📭 কোনো CSV ফাইল নেই। প্রথমে কিছু ডাটা যোগ করুন।")
+            return
+        
+        results = hf_manager.search_symbol_all_files(search_symbol)
+        
+        if not results:
+            await status_msg.edit_text(f"❌ '{search_symbol}' কোনো ফাইলে পাওয়া যায়নি।")
+            return
+        
+        result_text = f"🔍 **'{search_symbol}' পাওয়া গেছে {len(results)} টি ফাইলে:**\n\n"
+        for r in results:
+            result_text += f"📄 **{r['date']}.csv** (লাইন {r['line']}):\n"
+            full_row = ' | '.join(r['row'][:8])
+            if len(r['row']) > 8:
+                full_row += "..."
+            result_text += f"   {full_row}\n\n"
+        
+        await status_msg.edit_text(result_text, parse_mode='Markdown')
+        
+    except Exception as e:
+        await status_msg.edit_text(f"❌ ত্রুটি: {str(e)}")
+
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    dates = hf_manager.get_all_csv_files()
+    
+    status_text = f"""
+📊 **বট স্ট্যাটাস**
+
+📁 Hugging Face: `{HF_REPO}/{HF_FOLDER}/`
+🔑 HF_TOKEN: {'✅ সেট আছে' if HF_TOKEN else '❌ সেট নেই'}
+
+📅 আজকের তারিখ: `{bot.current_date}`
+📝 আজকের রেকর্ড: `{len(bot.current_data)}` টি
+
+📂 মোট CSV ফাইল: `{len(dates)}` টি
+"""
+    
+    if dates:
+        status_text += f"\n📄 সর্বশেষ ৫টি ফাইল:\n"
+        for date in dates[:5]:
+            status_text += f"   • `{date}.csv`\n"
+    
+    await update.message.reply_text(status_text, parse_mode='Markdown')
+
+async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    await update.message.reply_text("✅ অপারেশন বাতিল করা হয়েছে।")
+
+# ==================== FLASK ROUTES ====================
+
+@app.route('/')
+def home():
+    return jsonify({
+        "status": "active",
+        "bot": "Stock Data Bot",
+        "hf_repo": HF_REPO,
+        "today_records": len(bot.current_data),
+        "time": datetime.now().isoformat()
+    })
+
+@app.route('/health')
+def health():
+    return jsonify({"status": "healthy"})
+
+@app.route('/files')
+def get_files():
+    return jsonify({"files": hf_manager.get_all_csv_files()})
+
+# ==================== MAIN ====================
+
+async def run_bot():
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not token:
+        print("❌ TELEGRAM_BOT_TOKEN not set!")
+        return
+    
+    try:
+        application = Application.builder().token(token).build()
+        
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CommandHandler("list", list_command))
+        application.add_handler(CommandHandler("clear", clear_command))
+        application.add_handler(CommandHandler("yesclear", yesclear_command))
+        application.add_handler(CommandHandler("files", files_command))
+        application.add_handler(CommandHandler("view", view_command))
+        application.add_handler(CommandHandler("deletefile", deletefile_command))
+        application.add_handler(CommandHandler("confirmdelete", confirmdelete_command))
+        application.add_handler(CommandHandler("symbols", symbols_command))
+        application.add_handler(CommandHandler("deletesymbol", deletesymbol_command))
+        application.add_handler(CommandHandler("search", search_command))
+        application.add_handler(CommandHandler("status", status_command))
+        application.add_handler(CommandHandler("cancel", cancel_command))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        
+        print("🤖 Telegram Bot starting...")
+        await application.initialize()
+        await application.start()
+        await application.updater.start_polling()
+        
+        while True:
+            await asyncio.sleep(1)
+    except Exception as e:
+        print(f"❌ Error: {e}")
+
+def main():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    def start_bot():
+        asyncio.run(run_bot())
+    
+    thread = threading.Thread(target=start_bot, daemon=True)
+    thread.start()
+    
+    port = int(os.environ.get("PORT", 10000))
+    print(f"🌐 Flask on port {port}")
+    app.run(host='0.0.0.0', port=port)
+
+if __name__ == "__main__":
+    main()
