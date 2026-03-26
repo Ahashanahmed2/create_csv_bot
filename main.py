@@ -276,16 +276,17 @@ class StockDataBot:
         if not self.current_data:
             return f"📭 {self.current_date} তারিখের কোনো ডাটা নেই।"
         
-        preview = f"📊 **{self.current_date} - মোট {len(self.current_data)} টি রেকর্ড:**\n\n```\n"
-        preview += f"{'#':<4} {'সিম্বল':<12} {'এলিয়ট ওয়েব':<25} {'এন্ট্রি জোন':<15} {'অ্যাকশন':<20}\n"
+        preview = f"📊 *{self.current_date} - মোট {len(self.current_data)} টি রেকর্ড:*\n\n"
+        preview += "```\n"
+        preview += f"{'ক্রম':<4} {'সিম্বল':<12} {'এলিয়ট ওয়েব':<30} {'এন্ট্রি':<12} {'অ্যাকশন':<15}\n"
         preview += "-" * 80 + "\n"
         
-        for i, row in enumerate(self.current_data):
+        for i, row in enumerate(self.current_data[:20]):  # Show first 20 only
             symbol = row[0][:12] if len(row[0]) > 12 else row[0]
-            wave = row[1][:25] if len(row[1]) > 25 else row[1]
-            entry = row[3][:15] if len(row[3]) > 15 else row[3]
-            action = row[10][:20] if len(row[10]) > 20 else row[10]
-            preview += f"{i+1:<4} {symbol:<12} {wave:<25} {entry:<15} {action:<20}\n"
+            wave = row[1][:30] if len(row[1]) > 30 else row[1]
+            entry = row[3][:12] if len(row[3]) > 12 else row[3]
+            action = row[10][:15] if len(row[10]) > 15 else row[10]
+            preview += f"{i+1:<4} {symbol:<12} {wave:<30} {entry:<12} {action:<15}\n"
         
         preview += "```"
         return preview
@@ -307,152 +308,132 @@ def fix_date_format(date_str):
     return date_str
 
 def format_as_table(data, title):
-    """ডাটাকে সুন্দর টেবিল আকারে ফরম্যাট করা - কলাম সমানভাবে সাজানো"""
+    """ডাটাকে সুন্দর টেবিল আকারে ফরম্যাট করা - HTML like table"""
     if not data:
         return f"📭 {title} - কোনো ডাটা নেই।"
     
-    # Column headers in Bengali
-    headers = ["#", "সিম্বল", "এলিয়ট ওয়েব", "এন্ট্রি", "স্টপ", "TP1", "TP2", "RRR", "স্কোর", "কনফিডেন্স", "অ্যাকশন"]
+    # Create a simple but clean table format
+    table_lines = []
+    table_lines.append(f"📊 *{title} - মোট {len(data)} টি রেকর্ড:*")
+    table_lines.append("")
+    table_lines.append("```")
+    table_lines.append("┌────┬──────────┬────────────────────┬──────────┬────────┬──────┬──────┬─────┬──────┬────────────┬──────────────┐")
+    table_lines.append("│ #  │ সিম্বল   │ এলিয়ট ওয়েব        │ এন্ট্রি  │ স্টপ   │ TP1  │ TP2  │ RRR │ স্কোর│ কনফিডেন্স  │ অ্যাকশন     │")
+    table_lines.append("├────┼──────────┼────────────────────┼──────────┼────────┼──────┼──────┼─────┼──────┼────────────┼──────────────┤")
     
-    # Calculate column widths based on content
-    col_widths = [3]  # সিরিয়াল নম্বরের জন্য
-    
-    # Calculate width for each column
-    for col_idx in range(1, len(headers)):
-        max_width = len(headers[col_idx])
-        for row in data:
-            if col_idx < len(row):
-                cell_text = str(row[col_idx])[:30]
-                max_width = max(max_width, len(cell_text))
-        # Limit width to reasonable size
-        col_widths.append(min(max_width + 2, 25))
-    
-    # Adjust some columns manually
-    col_widths[1] = min(col_widths[1], 12)   # সিম্বল
-    col_widths[2] = min(col_widths[2], 20)   # এলিয়ট ওয়েব
-    col_widths[3] = min(col_widths[3], 12)   # এন্ট্রি
-    col_widths[4] = min(col_widths[4], 8)    # স্টপ
-    col_widths[5] = min(col_widths[5], 8)    # TP1
-    col_widths[6] = min(col_widths[6], 8)    # TP2
-    col_widths[7] = min(col_widths[7], 6)    # RRR
-    col_widths[8] = min(col_widths[8], 6)    # স্কোর
-    col_widths[9] = min(col_widths[9], 12)   # কনফিডেন্স
-    col_widths[10] = min(col_widths[10], 15) # অ্যাকশন
-    
-    # Create table
-    table = f"📊 **{title} - মোট {len(data)} টি রেকর্ড:**\n\n```\n"
-    
-    # Header line
-    header_line = ""
-    for i, header in enumerate(headers):
-        header_line += f"{header:<{col_widths[i]}}"
-    table += header_line + "\n"
-    
-    # Separator line
-    separator = ""
-    for width in col_widths:
-        separator += "-" * width
-    table += separator + "\n"
-    
-    # Data rows
-    for i, row in enumerate(data):
-        line = ""
+    for i, row in enumerate(data[:30]):  # Limit to 30 rows per message
+        # Extract and truncate data
+        symbol = (row[0][:10] if len(row[0]) > 10 else row[0]).ljust(10)
+        wave = (row[1][:20] if len(row[1]) > 20 else row[1]).ljust(20)
+        entry = (row[3][:10] if len(row[3]) > 10 else row[3]).ljust(10)
+        stop = (row[4][:8] if len(row[4]) > 8 else row[4]).ljust(8)
+        tp1 = (row[5][:6] if len(row[5]) > 6 else row[5]).ljust(6)
+        tp2 = (row[6][:6] if len(row[6]) > 6 else row[6]).ljust(6)
+        rrr = (row[7][:5] if len(row[7]) > 5 else row[7]).ljust(5)
+        score = (row[8][:6] if len(row[8]) > 6 else row[8]).ljust(6)
+        conf = (row[9][:12] if len(row[9]) > 12 else row[9]).ljust(12)
+        action = (row[10][:14] if len(row[10]) > 14 else row[10]).ljust(14)
         
-        # Serial number
-        line += f"{i+1:<{col_widths[0]}}"
+        table_lines.append(f"│ {i+1:<2} │ {symbol} │ {wave} │ {entry} │ {stop} │ {tp1} │ {tp2} │ {rrr} │ {score} │ {conf} │ {action} │")
         
-        # Each column
-        for col_idx in range(1, len(headers)):
-            if col_idx < len(row):
-                cell = str(row[col_idx])[:col_widths[col_idx]]
-                line += f"{cell:<{col_widths[col_idx]}}"
-            else:
-                line += f"{'':<{col_widths[col_idx]}}"
-        
-        table += line + "\n"
-        
-        # Add separator every 10 rows for better readability
+        # Add separator every 10 rows
         if (i + 1) % 10 == 0 and i + 1 < len(data):
-            table += separator + "\n"
+            table_lines.append("├────┼──────────┼────────────────────┼──────────┼────────┼──────┼──────┼─────┼──────┼────────────┼──────────────┤")
     
-    table += "```"
-    return table
+    table_lines.append("└────┴──────────┴────────────────────┴──────────┴────────┴──────┴──────┴─────┴──────┴────────────┴──────────────┘")
+    table_lines.append("```")
+    
+    if len(data) > 30:
+        table_lines.append(f"\n*⚠️ মাত্র ৩০টি রেকর্ড দেখানো হয়েছে। মোট {len(data)} টি রেকর্ড আছে।*")
+    
+    return "\n".join(table_lines)
 
 def format_files_table(dates):
     """ফাইলের তালিকা সুন্দর টেবিল আকারে দেখান"""
     if not dates:
         return "📭 কোনো CSV ফাইল নেই।"
     
-    # Calculate widths
-    serial_width = 6
-    name_width = 20
+    table_lines = []
+    table_lines.append(f"📁 *CSV ফাইলের তালিকা ({len(dates)} টি):*")
+    table_lines.append("")
+    table_lines.append("```")
+    table_lines.append("┌──────┬──────────────────────┐")
+    table_lines.append("│ ক্রম │ ফাইলের নাম           │")
+    table_lines.append("├──────┼──────────────────────┤")
     
-    table = f"📁 **CSV ফাইলের তালিকা ({len(dates)} টি):**\n\n```\n"
+    for i, date in enumerate(dates[:50]):  # Show first 50 files
+        table_lines.append(f"│ {i+1:<4} │ {date}.csv{' ':<{18-len(date)}} │")
     
-    # Header
-    table += f"{'ক্রম':<{serial_width}} {'ফাইলের নাম':<{name_width}} {'তারিখ':<12}\n"
-    table += "-" * (serial_width + name_width + 15) + "\n"
+    table_lines.append("└──────┴──────────────────────┘")
+    table_lines.append("```")
     
-    # Data rows
-    for i, date in enumerate(dates):
-        table += f"{i+1:<{serial_width}} {date}.csv{' ':<{name_width-len(date)-4}} {date:<12}\n"
+    if len(dates) > 50:
+        table_lines.append(f"\n*⚠️ মাত্র ৫০টি ফাইল দেখানো হয়েছে। মোট {len(dates)} টি ফাইল আছে।*")
     
-    table += "```"
-    return table
+    return "\n".join(table_lines)
 
 def get_search_results_table(results, search_symbol):
     """সার্চ রেজাল্ট সুন্দর টেবিল আকারে দেখান"""
     if not results:
         return f"❌ '{search_symbol}' কোনো ফাইলে পাওয়া যায়নি।"
     
-    # Define headers
-    headers = ["#", "তারিখ", "সিম্বল", "এলিয়ট ওয়েব", "এন্ট্রি", "অ্যাকশন"]
+    table_lines = []
+    table_lines.append(f"🔍 *'{search_symbol}' পাওয়া গেছে {len(results)} টি ফাইলে:*")
+    table_lines.append("")
+    table_lines.append("```")
+    table_lines.append("┌──────┬────────────┬──────────┬────────────────────┬──────────┬──────────────┐")
+    table_lines.append("│ ক্রম │ তারিখ      │ সিম্বল   │ এলিয়ট ওয়েব        │ এন্ট্রি  │ অ্যাকশন     │")
+    table_lines.append("├──────┼────────────┼──────────┼────────────────────┼──────────┼──────────────┤")
     
-    # Calculate widths
-    col_widths = [4, 12, 12, 25, 12, 15]
-    
-    table = f"🔍 **'{search_symbol}' পাওয়া গেছে {len(results)} টি ফাইলে:**\n\n```\n"
-    
-    # Header
-    header_line = ""
-    for i, header in enumerate(headers):
-        header_line += f"{header:<{col_widths[i]}}"
-    table += header_line + "\n"
-    table += "-" * sum(col_widths) + "\n"
-    
-    # Data rows
     for i, r in enumerate(results):
-        line = f"{i+1:<{col_widths[0]}}"
+        date = r['date'][:12].ljust(12)
+        symbol = (r['row'][0][:10] if len(r['row'][0]) > 10 else r['row'][0]).ljust(10)
+        wave = (r['row'][1][:20] if len(r['row'][1]) > 20 else r['row'][1]).ljust(20)
+        entry = (r['row'][3][:10] if len(r['row'][3]) > 10 else r['row'][3]).ljust(10)
+        action = (r['row'][10][:14] if len(r['row'][10]) > 14 else r['row'][10]).ljust(14)
         
-        date = r['date'][:col_widths[1]]
-        line += f"{date:<{col_widths[1]}}"
-        
-        symbol = r['row'][0][:col_widths[2]]
-        line += f"{symbol:<{col_widths[2]}}"
-        
-        wave = r['row'][1][:col_widths[3]]
-        line += f"{wave:<{col_widths[3]}}"
-        
-        entry = r['row'][3][:col_widths[4]]
-        line += f"{entry:<{col_widths[4]}}"
-        
-        action = r['row'][10][:col_widths[5]]
-        line += f"{action:<{col_widths[5]}}"
-        
-        table += line + "\n"
+        table_lines.append(f"│ {i+1:<4} │ {date} │ {symbol} │ {wave} │ {entry} │ {action} │")
     
-    table += "```"
-    return table
+    table_lines.append("└──────┴────────────┴──────────┴────────────────────┴──────────┴──────────────┘")
+    table_lines.append("```")
+    
+    return "\n".join(table_lines)
+
+def format_symbols_list(symbols, date):
+    """সিম্বল লিস্ট সুন্দরভাবে দেখান"""
+    if not symbols:
+        return f"📭 `{date}.csv` ফাইলে কোনো সিম্বল নেই।"
+    
+    table_lines = []
+    table_lines.append(f"📋 *{date}.csv - সিম্বল লিস্ট ({len(symbols)} টি):*")
+    table_lines.append("")
+    table_lines.append("```")
+    table_lines.append("┌──────┬────────────────────────┐")
+    table_lines.append("│ ক্রম │ সিম্বল                  │")
+    table_lines.append("├──────┼────────────────────────┤")
+    
+    for i, symbol in enumerate(symbols[:50]):
+        table_lines.append(f"│ {i+1:<4} │ {symbol:<23} │")
+    
+    table_lines.append("└──────┴────────────────────────┘")
+    table_lines.append("```")
+    
+    if len(symbols) > 50:
+        table_lines.append(f"\n*⚠️ মাত্র ৫০টি সিম্বল দেখানো হয়েছে। মোট {len(symbols)} টি সিম্বল আছে।*")
+    
+    table_lines.append(f"\n💡 সিম্বল ডিলিট: `/deletesymbol {date} [সিম্বল]`")
+    
+    return "\n".join(table_lines)
 
 # ==================== TELEGRAM HANDLERS ====================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🤖 **স্টক ডাটা বট - Hugging Face স্টোরেজ**\n\n"
-        "📝 **ডাটা যোগ করুন:**\n"
+        "🤖 *স্টক ডাটা বট - Hugging Face স্টোরেজ*\n\n"
+        "📝 *ডাটা যোগ করুন:*\n"
         "CSV ফরম্যাটে ডাটা পাঠান:\n"
         "`BDCOM,Impulse (Wave 4),Sub-wave C,25.80-26.30,24.90,27.50,29.00,1:1.8,72,High,Accumulate`\n\n"
-        "📚 **কমান্ড:**\n"
+        "📚 *কমান্ড:*\n"
         "`/help` - সব কমান্ড দেখুন\n"
         "`/list` - আজকের ডাটা দেখুন (সম্পূর্ণ টেবিল)\n"
         "`/files` - সব CSV ফাইলের তালিকা (টেবিল)\n"
@@ -468,48 +449,48 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = """
-📚 **স্টক ডাটা বট - সম্পূর্ণ গাইড**
+📚 *স্টক ডাটা বট - সম্পূর্ণ গাইড*
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📝 **ডাটা যোগ করার নিয়ম**
+📝 *ডাটা যোগ করার নিয়ম*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CSV ফরম্যাটে ডাটা পাঠান:
 `BDCOM,Impulse (Wave 4),Sub-wave C,25.80-26.30,24.90,27.50,29.00,1:1.8,72,High,Accumulate`
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📁 **ফাইল ম্যানেজমেন্ট**
+📁 *ফাইল ম্যানেজমেন্ট*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 • `/files` - সব CSV ফাইলের তালিকা (টেবিল)
 • `/view 25-03-2026` - নির্দিষ্ট ফাইল দেখুন (সম্পূর্ণ টেবিল)
 • `/deletefile 25-03-2026` - ফাইল ডিলিট করুন
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔍 **সিম্বল ম্যানেজমেন্ট**
+🔍 *সিম্বল ম্যানেজমেন্ট*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 • `/symbols 25-03-2026` - ফাইলের সিম্বল দেখুন
 • `/deletesymbol 25-03-2026 BDCOM` - সিম্বল ডিলিট
 • `/search BDCOM` - সব ফাইলে সিম্বল খুঁজুন (টেবিল)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 **আজকের ডাটা**
+📊 *আজকের ডাটা*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 • `/list` - আজকের ডাটা দেখুন (সম্পূর্ণ টেবিল)
 • `/clear` - আজকের সব ডাটা মুছুন
 • `/yesclear` - ক্লিয়ার কনফার্ম
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-ℹ️ **অন্যান্য**
+ℹ️ *অন্যান্য*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 • `/status` - বটের স্ট্যাটাস দেখুন
 • `/cancel` - চলমান অপারেশন বাতিল করুন
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📂 **স্টোরেজ লোকেশন**
+📂 *স্টোরেজ লোকেশন*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Hugging Face: `ahashanahmed/csv/stock/`
 ফাইল ফরম্যাট: `stock/DD-MM-YYYY.csv`
 
-💡 **টিপস:**
+💡 *টিপস:*
 • তারিখ ফরম্যাট: DD-MM-YYYY (যেমন: 25-03-2026)
 • সিম্বল কেস সেনসিটিভ নয় (BDCOM = bdcom)
 """
@@ -542,8 +523,8 @@ async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     table = format_as_table(bot.current_data, f"{bot.current_date} - আজকের ডাটা")
     
     # Split if message is too long
-    if len(table) > 4000:
-        parts = [table[i:i+4000] for i in range(0, len(table), 4000)]
+    if len(table) > 4096:
+        parts = [table[i:i+4096] for i in range(0, len(table), 4096)]
         for part in parts:
             await update.message.reply_text(part, parse_mode='Markdown')
     else:
@@ -591,7 +572,7 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 file_list += f"\n• ... এবং {len(dates)-10} টি বেশি"
             await status_msg.edit_text(
                 f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।\n\n"
-                f"📁 **আপনার ফাইলগুলি:**\n{file_list}",
+                f"📁 *আপনার ফাইলগুলি:*\n{file_list}",
                 parse_mode='Markdown'
             )
         else:
@@ -612,8 +593,8 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     table = format_as_table(actual_data, f"{date}.csv")
     
     # Split if too long
-    if len(table) > 4000:
-        parts = [table[i:i+4000] for i in range(0, len(table), 4000)]
+    if len(table) > 4096:
+        parts = [table[i:i+4096] for i in range(0, len(table), 4096)]
         await status_msg.delete()
         for i, part in enumerate(parts):
             if i == 0:
@@ -662,7 +643,7 @@ async def symbols_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 file_list += f"\n• ... এবং {len(dates)-10} টি বেশি"
             await status_msg.edit_text(
                 f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।\n\n"
-                f"📁 **আপনার ফাইলগুলি:**\n{file_list}",
+                f"📁 *আপনার ফাইলগুলি:*\n{file_list}",
                 parse_mode='Markdown'
             )
         else:
@@ -680,22 +661,16 @@ async def symbols_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     symbols = [row[0] for row in data[start_idx:] if row and len(row) > 0]
 
-    # Display symbols in a nice format
-    if not symbols:
-        await status_msg.edit_text(f"📭 `{date}.csv` ফাইলে কোনো সিম্বল নেই।", parse_mode='Markdown')
-        return
-
-    symbol_list = "\n".join([f"{i+1}. `{s}`" for i, s in enumerate(symbols)])
+    table = format_symbols_list(symbols, date)
     
     # Split if too long
-    if len(symbol_list) > 4000:
-        symbol_list = symbol_list[:4000] + "\n\n... এবং বাকি সিম্বল দেখানোর জন্য ফাইলটি ডাউনলোড করুন।"
-    
-    await status_msg.edit_text(
-        f"📋 **{date}.csv - সিম্বল লিস্ট ({len(symbols)} টি):**\n\n{symbol_list}\n\n"
-        f"💡 সিম্বল ডিলিট: `/deletesymbol {date} [সিম্বল]`",
-        parse_mode='Markdown'
-    )
+    if len(table) > 4096:
+        parts = [table[i:i+4096] for i in range(0, len(table), 4096)]
+        await status_msg.delete()
+        for part in parts:
+            await update.message.reply_text(part, parse_mode='Markdown')
+    else:
+        await status_msg.edit_text(table, parse_mode='Markdown')
 
 async def deletesymbol_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 2:
@@ -733,8 +708,8 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         table = get_search_results_table(results, search_symbol)
         
         # Split if too long
-        if len(table) > 4000:
-            parts = [table[i:i+4000] for i in range(0, len(table), 4000)]
+        if len(table) > 4096:
+            parts = [table[i:i+4096] for i in range(0, len(table), 4096)]
             await status_msg.delete()
             for part in parts:
                 await update.message.reply_text(part, parse_mode='Markdown')
@@ -748,7 +723,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     dates = hf_manager.get_all_csv_files()
 
     status_text = f"""
-📊 **বট স্ট্যাটাস**
+📊 *বট স্ট্যাটাস*
 
 📁 Hugging Face: `{HF_REPO}/{HF_FOLDER}/`
 🔑 HF_TOKEN: {'✅ সেট আছে' if HF_TOKEN else '❌ সেট নেই'}
