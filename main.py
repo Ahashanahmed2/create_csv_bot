@@ -272,24 +272,22 @@ class StockDataBot:
         return f"⚠️ ডাটা ক্লিয়ার হয়েছে কিন্তু সেভ করতে পারেনি: {msg}"
 
     def get_preview(self):
-        """আজকের ডাটার প্রিভিউ - সম্পূর্ণ টেবিল আকারে"""
+        """আজকের ডাটার প্রিভিউ - সুন্দর টেবিল আকারে"""
         if not self.current_data:
             return f"📭 {self.current_date} তারিখের কোনো ডাটা নেই।"
-
+        
         preview = f"📊 **{self.current_date} - মোট {len(self.current_data)} টি রেকর্ড:**\n\n```\n"
-        preview += f"{'#':<3} {'সিম্বল':<12} {'এলিয়ট ওয়েব':<25} {'এন্ট্রি জোন':<15} {'অ্যাকশন':<20}\n"
+        preview += f"{'#':<4} {'সিম্বল':<12} {'এলিয়ট ওয়েব':<25} {'এন্ট্রি জোন':<15} {'অ্যাকশন':<20}\n"
         preview += "-" * 80 + "\n"
-
-        # সকল রেকর্ড দেখান
+        
         for i, row in enumerate(self.current_data):
             symbol = row[0][:12] if len(row[0]) > 12 else row[0]
             wave = row[1][:25] if len(row[1]) > 25 else row[1]
             entry = row[3][:15] if len(row[3]) > 15 else row[3]
             action = row[10][:20] if len(row[10]) > 20 else row[10]
-            preview += f"{i+1:<3} {symbol:<12} {wave:<25} {entry:<15} {action:<20}\n"
-
+            preview += f"{i+1:<4} {symbol:<12} {wave:<25} {entry:<15} {action:<20}\n"
+        
         preview += "```"
-
         return preview
 
 bot = StockDataBot()
@@ -309,49 +307,139 @@ def fix_date_format(date_str):
     return date_str
 
 def format_as_table(data, title):
-    """ডাটাকে সম্পূর্ণ টেবিল আকারে ফরম্যাট করা - সব রো দেখাবে"""
+    """ডাটাকে সুন্দর টেবিল আকারে ফরম্যাট করা - কলাম সমানভাবে সাজানো"""
     if not data:
         return f"📭 {title} - কোনো ডাটা নেই।"
-
-    # Column headers
-    headers = ["#", "সিম্বল", "ওয়েব", "এন্ট্রি", "স্টপ", "টিপি১", "টিপি২", "RRR", "স্কোর", "কনফিডেন্স", "অ্যাকশন"]
-
+    
+    # Column headers in Bengali
+    headers = ["#", "সিম্বল", "এলিয়ট ওয়েব", "এন্ট্রি", "স্টপ", "TP1", "TP2", "RRR", "স্কোর", "কনফিডেন্স", "অ্যাকশন"]
+    
+    # Calculate column widths based on content
+    col_widths = [3]  # সিরিয়াল নম্বরের জন্য
+    
+    # Calculate width for each column
+    for col_idx in range(1, len(headers)):
+        max_width = len(headers[col_idx])
+        for row in data:
+            if col_idx < len(row):
+                cell_text = str(row[col_idx])[:30]
+                max_width = max(max_width, len(cell_text))
+        # Limit width to reasonable size
+        col_widths.append(min(max_width + 2, 25))
+    
+    # Adjust some columns manually
+    col_widths[1] = min(col_widths[1], 12)   # সিম্বল
+    col_widths[2] = min(col_widths[2], 20)   # এলিয়ট ওয়েব
+    col_widths[3] = min(col_widths[3], 12)   # এন্ট্রি
+    col_widths[4] = min(col_widths[4], 8)    # স্টপ
+    col_widths[5] = min(col_widths[5], 8)    # TP1
+    col_widths[6] = min(col_widths[6], 8)    # TP2
+    col_widths[7] = min(col_widths[7], 6)    # RRR
+    col_widths[8] = min(col_widths[8], 6)    # স্কোর
+    col_widths[9] = min(col_widths[9], 12)   # কনফিডেন্স
+    col_widths[10] = min(col_widths[10], 15) # অ্যাকশন
+    
+    # Create table
     table = f"📊 **{title} - মোট {len(data)} টি রেকর্ড:**\n\n```\n"
     
     # Header line
-    table += f"{headers[0]:<4} {headers[1]:<12} {headers[2]:<20} {headers[3]:<12} {headers[4]:<8} {headers[5]:<8} {headers[6]:<8} {headers[7]:<6} {headers[8]:<6} {headers[9]:<12} {headers[10]:<15}\n"
-    table += "-" * 130 + "\n"
-
-    # All data rows
+    header_line = ""
+    for i, header in enumerate(headers):
+        header_line += f"{header:<{col_widths[i]}}"
+    table += header_line + "\n"
+    
+    # Separator line
+    separator = ""
+    for width in col_widths:
+        separator += "-" * width
+    table += separator + "\n"
+    
+    # Data rows
     for i, row in enumerate(data):
-        symbol = row[0][:12] if len(row[0]) > 12 else row[0]
-        wave = row[1][:20] if len(row[1]) > 20 else row[1]
-        entry = row[3][:12] if len(row[3]) > 12 else row[3]
-        stop = row[4][:8] if len(row[4]) > 8 else row[4]
-        tp1 = row[5][:8] if len(row[5]) > 8 else row[5]
-        tp2 = row[6][:8] if len(row[6]) > 8 else row[6]
-        rrr = row[7][:6] if len(row[7]) > 6 else row[7]
-        score = row[8][:6] if len(row[8]) > 6 else row[8]
-        confidence = row[9][:12] if len(row[9]) > 12 else row[9]
-        action = row[10][:15] if len(row[10]) > 15 else row[10]
+        line = ""
         
-        table += f"{i+1:<4} {symbol:<12} {wave:<20} {entry:<12} {stop:<8} {tp1:<8} {tp2:<8} {rrr:<6} {score:<6} {confidence:<12} {action:<15}\n"
-
+        # Serial number
+        line += f"{i+1:<{col_widths[0]}}"
+        
+        # Each column
+        for col_idx in range(1, len(headers)):
+            if col_idx < len(row):
+                cell = str(row[col_idx])[:col_widths[col_idx]]
+                line += f"{cell:<{col_widths[col_idx]}}"
+            else:
+                line += f"{'':<{col_widths[col_idx]}}"
+        
+        table += line + "\n"
+        
+        # Add separator every 10 rows for better readability
+        if (i + 1) % 10 == 0 and i + 1 < len(data):
+            table += separator + "\n"
+    
     table += "```"
-
     return table
 
 def format_files_table(dates):
-    """ফাইলের তালিকা টেবিল আকারে দেখান"""
+    """ফাইলের তালিকা সুন্দর টেবিল আকারে দেখান"""
     if not dates:
         return "📭 কোনো CSV ফাইল নেই।"
     
-    table = f"📁 **CSV ফাইলের তালিকা ({len(dates)} টি):**\n\n```\n"
-    table += f"{'ক্রম':<6} {'ফাইলের নাম':<20} {'তারিখ':<12}\n"
-    table += "-" * 40 + "\n"
+    # Calculate widths
+    serial_width = 6
+    name_width = 20
     
+    table = f"📁 **CSV ফাইলের তালিকা ({len(dates)} টি):**\n\n```\n"
+    
+    # Header
+    table += f"{'ক্রম':<{serial_width}} {'ফাইলের নাম':<{name_width}} {'তারিখ':<12}\n"
+    table += "-" * (serial_width + name_width + 15) + "\n"
+    
+    # Data rows
     for i, date in enumerate(dates):
-        table += f"{i+1:<6} {date}.csv{' ':<12} {date:<12}\n"
+        table += f"{i+1:<{serial_width}} {date}.csv{' ':<{name_width-len(date)-4}} {date:<12}\n"
+    
+    table += "```"
+    return table
+
+def get_search_results_table(results, search_symbol):
+    """সার্চ রেজাল্ট সুন্দর টেবিল আকারে দেখান"""
+    if not results:
+        return f"❌ '{search_symbol}' কোনো ফাইলে পাওয়া যায়নি।"
+    
+    # Define headers
+    headers = ["#", "তারিখ", "সিম্বল", "এলিয়ট ওয়েব", "এন্ট্রি", "অ্যাকশন"]
+    
+    # Calculate widths
+    col_widths = [4, 12, 12, 25, 12, 15]
+    
+    table = f"🔍 **'{search_symbol}' পাওয়া গেছে {len(results)} টি ফাইলে:**\n\n```\n"
+    
+    # Header
+    header_line = ""
+    for i, header in enumerate(headers):
+        header_line += f"{header:<{col_widths[i]}}"
+    table += header_line + "\n"
+    table += "-" * sum(col_widths) + "\n"
+    
+    # Data rows
+    for i, r in enumerate(results):
+        line = f"{i+1:<{col_widths[0]}}"
+        
+        date = r['date'][:col_widths[1]]
+        line += f"{date:<{col_widths[1]}}"
+        
+        symbol = r['row'][0][:col_widths[2]]
+        line += f"{symbol:<{col_widths[2]}}"
+        
+        wave = r['row'][1][:col_widths[3]]
+        line += f"{wave:<{col_widths[3]}}"
+        
+        entry = r['row'][3][:col_widths[4]]
+        line += f"{entry:<{col_widths[4]}}"
+        
+        action = r['row'][10][:col_widths[5]]
+        line += f"{action:<{col_widths[5]}}"
+        
+        table += line + "\n"
     
     table += "```"
     return table
@@ -446,13 +534,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """আজকের ডাটা সম্পূর্ণ টেবিল আকারে দেখান"""
+    """আজকের ডাটা সুন্দর টেবিল আকারে দেখান"""
     if not bot.current_data:
         await update.message.reply_text(f"📭 {bot.current_date} তারিখের কোনো ডাটা নেই।")
         return
-
+    
     table = format_as_table(bot.current_data, f"{bot.current_date} - আজকের ডাটা")
-    await update.message.reply_text(table, parse_mode='Markdown')
+    
+    # Split if message is too long
+    if len(table) > 4000:
+        parts = [table[i:i+4000] for i in range(0, len(table), 4000)]
+        for part in parts:
+            await update.message.reply_text(part, parse_mode='Markdown')
+    else:
+        await update.message.reply_text(table, parse_mode='Markdown')
 
 async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⚠️ আজকের সব ডাটা মুছে যাবে। `/yesclear` দিয়ে কনফার্ম করুন।", parse_mode='Markdown')
@@ -478,20 +573,22 @@ async def files_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(table, parse_mode='Markdown')
 
 async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """নির্দিষ্ট ফাইল সম্পূর্ণ টেবিল আকারে দেখান"""
+    """নির্দিষ্ট ফাইল সুন্দর টেবিল আকারে দেখান"""
     if not context.args:
         await update.message.reply_text("❌ তারিখ দিন। উদাহরণ: `/view 25-03-2026`")
         return
-
+    
     date = fix_date_format(context.args[0])
     status_msg = await update.message.reply_text(f"⏳ `{date}.csv` ফাইল খুঁজছি...", parse_mode='Markdown')
-
+    
     data = hf_manager.read_csv_file(date)
-
+    
     if data is None:
         dates = hf_manager.get_all_csv_files()
         if dates:
-            file_list = "\n".join([f"• `{d}.csv`" for d in dates])
+            file_list = "\n".join([f"• `{d}.csv`" for d in dates[:10]])
+            if len(dates) > 10:
+                file_list += f"\n• ... এবং {len(dates)-10} টি বেশি"
             await status_msg.edit_text(
                 f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।\n\n"
                 f"📁 **আপনার ফাইলগুলি:**\n{file_list}",
@@ -500,20 +597,31 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await status_msg.edit_text(f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।", parse_mode='Markdown')
         return
-
+    
     if not data:
         await status_msg.edit_text(f"📭 `{date}.csv` ফাইলটি খালি।", parse_mode='Markdown')
         return
-
+    
     # Check if first row is header and skip it
     start_idx = 0
     if data and data[0] and len(data[0]) > 0 and ('symbol' in data[0][0].lower() or 'সিম্বল' in data[0][0]):
         start_idx = 1
-
+    
     actual_data = data[start_idx:]
-
+    
     table = format_as_table(actual_data, f"{date}.csv")
-    await status_msg.edit_text(table, parse_mode='Markdown')
+    
+    # Split if too long
+    if len(table) > 4000:
+        parts = [table[i:i+4000] for i in range(0, len(table), 4000)]
+        await status_msg.delete()
+        for i, part in enumerate(parts):
+            if i == 0:
+                await update.message.reply_text(part, parse_mode='Markdown')
+            else:
+                await update.message.reply_text(part, parse_mode='Markdown')
+    else:
+        await status_msg.edit_text(table, parse_mode='Markdown')
 
 async def deletefile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
@@ -549,7 +657,9 @@ async def symbols_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data is None:
         dates = hf_manager.get_all_csv_files()
         if dates:
-            file_list = "\n".join([f"• `{d}.csv`" for d in dates])
+            file_list = "\n".join([f"• `{d}.csv`" for d in dates[:10]])
+            if len(dates) > 10:
+                file_list += f"\n• ... এবং {len(dates)-10} টি বেশি"
             await status_msg.edit_text(
                 f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।\n\n"
                 f"📁 **আপনার ফাইলগুলি:**\n{file_list}",
@@ -576,6 +686,11 @@ async def symbols_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     symbol_list = "\n".join([f"{i+1}. `{s}`" for i, s in enumerate(symbols)])
+    
+    # Split if too long
+    if len(symbol_list) > 4000:
+        symbol_list = symbol_list[:4000] + "\n\n... এবং বাকি সিম্বল দেখানোর জন্য ফাইলটি ডাউনলোড করুন।"
+    
     await status_msg.edit_text(
         f"📋 **{date}.csv - সিম্বল লিস্ট ({len(symbols)} টি):**\n\n{symbol_list}\n\n"
         f"💡 সিম্বল ডিলিট: `/deletesymbol {date} [সিম্বল]`",
@@ -598,44 +713,34 @@ async def deletesymbol_command(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(msg)
 
 async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """সব ফাইলে সিম্বল খুঁজুন - সম্পূর্ণ টেবিল আকারে"""
+    """সব ফাইলে সিম্বল খুঁজুন - সুন্দর টেবিল আকারে"""
     if not context.args:
         await update.message.reply_text("❌ সিম্বল দিন। উদাহরণ: `/search BDCOM`")
         return
-
+    
     search_symbol = context.args[0].upper()
     status_msg = await update.message.reply_text(f"🔍 '{search_symbol}' খুঁজছি... দয়া করে অপেক্ষা করুন।")
-
+    
     try:
         dates = hf_manager.get_all_csv_files()
-
+        
         if not dates:
             await status_msg.edit_text("📭 কোনো CSV ফাইল নেই। প্রথমে কিছু ডাটা যোগ করুন।")
             return
-
+        
         results = hf_manager.search_symbol_all_files(search_symbol)
-
-        if not results:
-            await status_msg.edit_text(f"❌ '{search_symbol}' কোনো ফাইলে পাওয়া যায়নি।")
-            return
-
-        # Create complete table for search results
-        result_text = f"🔍 **'{search_symbol}' পাওয়া গেছে {len(results)} টি ফাইলে:**\n\n```\n"
-        result_text += f"{'#':<4} {'তারিখ':<12} {'সিম্বল':<12} {'এলিয়ট ওয়েব':<25} {'এন্ট্রি':<12} {'অ্যাকশন':<15}\n"
-        result_text += "-" * 90 + "\n"
-
-        for i, r in enumerate(results):
-            date = r['date'][:12]
-            symbol = r['row'][0][:12] if len(r['row'][0]) > 12 else r['row'][0]
-            wave = r['row'][1][:25] if len(r['row'][1]) > 25 else r['row'][1]
-            entry = r['row'][3][:12] if len(r['row'][3]) > 12 else r['row'][3]
-            action = r['row'][10][:15] if len(r['row'][10]) > 15 else r['row'][10]
-            result_text += f"{i+1:<4} {date:<12} {symbol:<12} {wave:<25} {entry:<12} {action:<15}\n"
-
-        result_text += "```"
-
-        await status_msg.edit_text(result_text, parse_mode='Markdown')
-
+        
+        table = get_search_results_table(results, search_symbol)
+        
+        # Split if too long
+        if len(table) > 4000:
+            parts = [table[i:i+4000] for i in range(0, len(table), 4000)]
+            await status_msg.delete()
+            for part in parts:
+                await update.message.reply_text(part, parse_mode='Markdown')
+        else:
+            await status_msg.edit_text(table, parse_mode='Markdown')
+    
     except Exception as e:
         await status_msg.edit_text(f"❌ ত্রুটি: {str(e)}")
 
