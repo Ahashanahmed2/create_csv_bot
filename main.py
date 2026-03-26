@@ -76,7 +76,6 @@ class HuggingFaceManager:
             files = list_repo_files(self.repo_id, token=self.token, repo_type=self.repo_type)
             if filename not in files:
                 logger.error(f"❌ File not found: {filename}")
-                logger.info(f"Available files: {[f for f in files if f.startswith(self.folder)]}")
                 return None
 
             logger.info(f"✅ File found, downloading...")
@@ -155,13 +154,10 @@ class HuggingFaceManager:
         if not data:
             return False, f"❌ ফাইলটি খালি।"
 
-        start_idx = 0
-        if data and data[0] and len(data[0]) > 0:
-            first_cell = data[0][0].lower() if data[0][0] else ''
-            if 'symbol' in first_cell or 'সিম্বল' in first_cell:
-                start_idx = 1
-
-        new_data = data[:start_idx]
+        # Find actual data start (skip headers)
+        start_idx = self.find_data_start(data)
+        
+        new_data = data[:start_idx]  # Keep headers
         deleted_count = 0
 
         for row in data[start_idx:]:
@@ -178,6 +174,24 @@ class HuggingFaceManager:
             return True, f"✅ {symbol} ডিলিট করা হয়েছে। (ডিলিট: {deleted_count} টি)"
         return False, msg
 
+    def find_data_start(self, data):
+        """ডাটা শুরু কোথায় তা খুঁজে বের করুন"""
+        if not data:
+            return 0
+        
+        # Check first few rows to find where actual data starts
+        for idx, row in enumerate(data[:10]):
+            if row and len(row) > 0:
+                # Check if this looks like a symbol (uppercase, not too long)
+                first_cell = row[0].strip().upper()
+                # Skip if it's a header like 'symbol' or 'সিম্বল'
+                if first_cell in ['SYMBOL', 'সিম্বল', 'SYMBOL', 'SIGN']:
+                    continue
+                # Check if it's a valid symbol format (usually uppercase letters)
+                if re.match(r'^[A-Z]{3,}$', first_cell):
+                    return idx
+        return 0
+
     def search_symbol_all_files(self, symbol):
         """সব ফাইলে সিম্বল খুঁজুন"""
         dates = self.get_all_csv_files()
@@ -186,11 +200,7 @@ class HuggingFaceManager:
         for date in dates:
             data = self.read_csv_file(date)
             if data and len(data) > 0:
-                start_idx = 0
-                if data[0] and len(data[0]) > 0:
-                    first_cell = data[0][0].lower() if data[0][0] else ''
-                    if 'symbol' in first_cell or 'সিম্বল' in first_cell:
-                        start_idx = 1
+                start_idx = self.find_data_start(data)
 
                 for idx, row in enumerate(data[start_idx:]):
                     if row and len(row) > 0 and row[0].upper() == symbol.upper():
@@ -215,11 +225,7 @@ class StockDataBot:
         """আজকের ডাটা লোড করুন"""
         data = hf_manager.read_csv_file(self.current_date)
         if data:
-            start_idx = 0
-            if data and data[0] and len(data[0]) > 0:
-                first_cell = data[0][0].lower() if data[0][0] else ''
-                if 'symbol' in first_cell or 'সিম্বল' in first_cell:
-                    start_idx = 1
+            start_idx = hf_manager.find_data_start(data)
             self.current_data = data[start_idx:]
             logger.info(f"Loaded {len(self.current_data)} records for {self.current_date}")
         else:
@@ -249,10 +255,10 @@ class StockDataBot:
                     added += 1
 
         if added > 0:
-            headers = ["symbol", "এলিয়ট ওয়েব (বর্তমান অবস্থান)", "সাব-ওয়েব (বর্তমান অবস্থান)", 
-                      "এন্ট্রি জোন (টাকা)", "স্টপ লস (টাকা)", "টেক প্রফিট ১ (টাকা)", 
-                      "টেক প্রফিট ২ (টাকা)", "রিস্ক-রিওয়ার্ড অনুপাত (RRR)", 
-                      "স্কোর (১০০ এর মধ্যে)", "কনফিডেন্স লেভেল", "অ্যাকশন রিকমেন্ডেশন"]
+            # Standard headers
+            headers = ["symbol", "এলিয়ট ওয়েব", "সাব-ওয়েব", "এন্ট্রি জোন", 
+                      "স্টপ লস", "টেক প্রফিট ১", "টেক প্রফিট ২", "RRR", 
+                      "স্কোর", "কনফিডেন্স", "অ্যাকশন"]
             data_to_save = [headers] + self.current_data
 
             success, msg = hf_manager.save_csv_file(self.current_date, data_to_save)
@@ -283,7 +289,6 @@ bot = StockDataBot()
 
 def fix_date_format(date_str):
     """তারিখ ফরম্যাট ঠিক করা: 25-3-2026 -> 25-03-2026"""
-    # Remove .csv if present
     date_str = date_str.replace('.csv', '').strip()
     pattern = r'^(\d{1,2})-(\d{1,2})-(\d{4})$'
     match = re.match(pattern, date_str)
@@ -305,13 +310,14 @@ def format_as_table(data, title, page=0, items_per_page=15):
     page_data = data[start_idx:end_idx]
     total_pages = (total_items + items_per_page - 1) // items_per_page
 
+    # Headers based on your data structure
     headers = [
         "#", "সিম্বল", "এলিয়ট ওয়েব", "সাব-ওয়েব",
-        "এন্ট্রি", "স্টপ লস", "TP1", "TP2", "RRR", "স্কোর", "কনফিডেন্স", "অ্যাকশন"
+        "এন্ট্রি", "স্টপ লস", "TP1", "TP2", "RRR", "স্কোর", "অ্যাকশন"
     ]
-
-    # Simplified column widths for better display
-    col_widths = [4, 12, 20, 15, 12, 10, 12, 12, 6, 6, 12, 12]
+    
+    # Column widths
+    col_widths = [4, 12, 18, 12, 12, 10, 10, 10, 6, 6, 20]
 
     page_info = f" (পৃষ্ঠা {page+1}/{total_pages})" if total_pages > 1 else ""
     table = f"📊 **{title}{page_info} - মোট {total_items} টি:**\n\n```\n"
@@ -333,19 +339,22 @@ def format_as_table(data, title, page=0, items_per_page=15):
     # Data rows
     for idx, row in enumerate(page_data):
         global_idx = start_idx + idx + 1
+        
+        # Handle different row lengths
+        symbol = row[0][:10] if len(row) > 0 and len(row[0]) > 10 else (row[0] if len(row) > 0 else "N/A")
+        elliott = row[1][:16] if len(row) > 1 and len(row[1]) > 16 else (row[1] if len(row) > 1 else "N/A")
+        subwave = row[2][:10] if len(row) > 2 and len(row[2]) > 10 else (row[2] if len(row) > 2 else "N/A")
+        entry = row[3][:10] if len(row) > 3 and len(row[3]) > 10 else (row[3] if len(row) > 3 else "N/A")
+        stoploss = row[4][:8] if len(row) > 4 and len(row[4]) > 8 else (row[4] if len(row) > 4 else "N/A")
+        tp1 = row[5][:8] if len(row) > 5 and len(row[5]) > 8 else (row[5] if len(row) > 5 else "N/A")
+        tp2 = row[6][:8] if len(row) > 6 and len(row[6]) > 8 else (row[6] if len(row) > 6 else "N/A")
+        rrr = row[7][:4] if len(row) > 7 and len(row[7]) > 4 else (row[7] if len(row) > 7 else "N/A")
+        score = row[8][:4] if len(row) > 8 and len(row[8]) > 4 else (row[8] if len(row) > 8 else "N/A")
+        action = row[10][:18] if len(row) > 10 and len(row[10]) > 18 else (row[10] if len(row) > 10 else "N/A")
+        
         row_data = [
-            str(global_idx),
-            row[0][:10] if len(row[0]) > 10 else row[0],
-            row[1][:18] if len(row[1]) > 18 else row[1],
-            row[2][:13] if len(row[2]) > 13 else row[2],
-            row[3][:10] if len(row[3]) > 10 else row[3],
-            row[4][:8] if len(row[4]) > 8 else row[4],
-            row[5][:10] if len(row[5]) > 10 else row[5],
-            row[6][:10] if len(row[6]) > 10 else row[6],
-            row[7][:4] if len(row[7]) > 4 else row[7],
-            row[8][:4] if len(row[8]) > 4 else row[8],
-            row[9][:10] if len(row[9]) > 10 else row[9],
-            row[10][:10] if len(row[10]) > 10 else row[10]
+            str(global_idx), symbol, elliott, subwave,
+            entry, stoploss, tp1, tp2, rrr, score, action
         ]
         
         for i, val in enumerate(row_data):
@@ -358,6 +367,10 @@ def format_as_table(data, title, page=0, items_per_page=15):
     
     if total_pages > 1:
         table += f"\n\n📄 পৃষ্ঠা {page+1}/{total_pages}"
+        if page > 0:
+            table += f"\n⬅️ আগের পৃষ্ঠা: /view_page {page}"
+        if page < total_pages - 1:
+            table += f"\n➡️ পরের পৃষ্ঠা: /view_page {page+2}"
     
     return table
 
@@ -377,7 +390,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "স্টক ডাটা ম্যানেজ করতে নিচের বাটন ব্যবহার করুন:\n\n"
         "📝 **ডাটা যোগ করুন:**\n"
         "CSV ফরম্যাটে ডাটা পাঠান:\n"
-        "`BDCOM,Impulse (Wave 4),Sub-wave C,25.80-26.30,24.90,27.50,29.00,1:1.8,72,High,Accumulate`",
+        "`ADVENT,Impulse (Up),Wave 5 of 3,13.8-14.2,13.2,15.0,16.0,1:2.5,68,High,Accumulate`",
         parse_mode='Markdown',
         reply_markup=reply_markup
     )
@@ -389,7 +402,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📝 **ডাটা যোগ করুন:**
 CSV ফরম্যাটে ডাটা পাঠান:
-`BDCOM,Impulse (Wave 4),Sub-wave C,25.80-26.30,24.90,27.50,29.00,1:1.8,72,High,Accumulate`
+`ADVENT,Impulse (Up),Wave 5 of 3,13.8-14.2,13.2,15.0,16.0,1:2.5,68,High,Accumulate`
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📁 **কমান্ড:**
@@ -406,6 +419,7 @@ CSV ফরম্যাটে ডাটা পাঠান:
 💡 **টিপস:**
 • ফাইলের তালিকা থেকে ক্লিক করেই ফাইল দেখুন
 • তারিখ ফরম্যাট: DD-MM-YYYY (যেমন: 25-03-2026)
+• প্রতি পৃষ্ঠায় ১৫টি করে ডাটা দেখানো হয়
 """
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
@@ -417,7 +431,6 @@ async def files_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📭 কোনো CSV ফাইল নেই।")
         return
 
-    # Create inline keyboard with file buttons
     keyboard = []
     for date in dates:
         keyboard.append([InlineKeyboardButton(f"📄 {date}.csv", callback_data=f"view_{date}")])
@@ -472,20 +485,16 @@ async def show_file(update, context, date, message_to_edit=None):
         await status_msg.edit_text(f"📭 `{date}.csv` ফাইলটি খালি।", parse_mode='Markdown')
         return
 
-    # Skip header if exists
-    start_idx = 0
-    if data and data[0] and len(data[0]) > 0:
-        first_cell = data[0][0].lower() if data[0][0] else ''
-        if 'symbol' in first_cell or 'সিম্বল' in first_cell:
-            start_idx = 1
-
+    # Find where actual data starts
+    start_idx = hf_manager.find_data_start(data)
     actual_data = data[start_idx:]
     
     # Store for pagination
     context.user_data['current_view_data'] = actual_data
     context.user_data['current_view_date'] = date
+    context.user_data['current_view_page'] = 0
     
-    table = format_as_table(actual_data, f"{date}.csv")
+    table = format_as_table(actual_data, f"{date}.csv", page=0)
     
     keyboard = [
         [InlineKeyboardButton("🔙 ফাইলের তালিকা", callback_data="files")],
@@ -494,6 +503,47 @@ async def show_file(update, context, date, message_to_edit=None):
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await status_msg.edit_text(table, parse_mode='Markdown', reply_markup=reply_markup)
+
+async def view_page_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """নির্দিষ্ট পৃষ্ঠা দেখান"""
+    if not context.args:
+        await update.message.reply_text("❌ পৃষ্ঠা নম্বর দিন। উদাহরণ: `/view_page 2`")
+        return
+    
+    try:
+        page = int(context.args[0]) - 1
+        if page < 0:
+            page = 0
+    except ValueError:
+        await update.message.reply_text("❌ সঠিক পৃষ্ঠা নম্বর দিন।")
+        return
+    
+    data = context.user_data.get('current_view_data')
+    date = context.user_data.get('current_view_date')
+    
+    if not data:
+        await update.message.reply_text("❌ আগে একটি ফাইল ওপেন করুন।")
+        return
+    
+    total_items = len(data)
+    items_per_page = 15
+    total_pages = (total_items + items_per_page - 1) // items_per_page
+    
+    if page >= total_pages:
+        await update.message.reply_text(f"❌ সর্বশেষ পৃষ্ঠা: {total_pages}")
+        return
+    
+    context.user_data['current_view_page'] = page
+    
+    table = format_as_table(data, f"{date}.csv", page=page)
+    
+    keyboard = [
+        [InlineKeyboardButton("🔙 ফাইলের তালিকা", callback_data="files")],
+        [InlineKeyboardButton("🏠 মেনুতে ফিরুন", callback_data="back_to_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(table, parse_mode='Markdown', reply_markup=reply_markup)
 
 async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """আজকের ডাটা দেখান"""
@@ -511,7 +561,7 @@ async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """সব ফাইলে সিম্বল খুঁজুন"""
     if not context.args:
-        await update.message.reply_text("❌ সিম্বল দিন। উদাহরণ: `/search BDCOM`")
+        await update.message.reply_text("❌ সিম্বল দিন। উদাহরণ: `/search ADVENT`")
         return
 
     search_symbol = context.args[0].upper()
@@ -525,15 +575,15 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         result_text = f"🔍 **'{search_symbol}' পাওয়া গেছে {len(results)} টি ফাইলে:**\n\n```\n"
-        result_text += f"{'#':<3} {'তারিখ':<12} {'সিম্বল':<12} {'এলিয়ট ওয়েব':<25} {'অ্যাকশন':<20}\n"
-        result_text += "-" * 80 + "\n"
+        result_text += f"{'#':<3} {'তারিখ':<12} {'সিম্বল':<12} {'এলিয়ট ওয়েব':<20} {'অ্যাকশন':<20}\n"
+        result_text += "-" * 75 + "\n"
 
         for i, r in enumerate(results[:20]):
             date = r['date'][:12]
-            symbol = r['row'][0][:12] if len(r['row'][0]) > 12 else r['row'][0]
-            wave = r['row'][1][:25] if len(r['row'][1]) > 25 else r['row'][1]
-            action = r['row'][10][:20] if len(r['row'][10]) > 20 else r['row'][10]
-            result_text += f"{i+1:<3} {date:<12} {symbol:<12} {wave:<25} {action:<20}\n"
+            symbol = r['row'][0][:10] if len(r['row'][0]) > 10 else r['row'][0]
+            wave = r['row'][1][:18] if len(r['row'][1]) > 18 else r['row'][1]
+            action = r['row'][10][:18] if len(r['row'][10]) > 18 else r['row'][10] if len(r['row']) > 10 else "N/A"
+            result_text += f"{i+1:<3} {date:<12} {symbol:<12} {wave:<20} {action:<20}\n"
 
         result_text += "```"
         
@@ -551,7 +601,7 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def deletesymbol_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 2:
-        await update.message.reply_text("❌ তারিখ এবং সিম্বল দিন। উদাহরণ: `/deletesymbol 25-03-2026 BDCOM`")
+        await update.message.reply_text("❌ তারিখ এবং সিম্বল দিন। উদাহরণ: `/deletesymbol 25-03-2026 ADVENT`")
         return
 
     date = fix_date_format(context.args[0])
@@ -586,7 +636,7 @@ async def confirmdelete_command(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data['delete_file'] = None
 
 async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("⚠️ আজকের সব ডাটা মুছে যাবে। `/yesclear` দিয়ে কনফার্ম করুন。")
+    await update.message.reply_text("⚠️ আজকের সব ডাটা মুছে যাবে। `/yesclear` দিয়ে কনফার্ম করুন।")
     context.user_data['confirm'] = True
 
 async def yesclear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -610,6 +660,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📝 আজকের রেকর্ড: `{len(bot.current_data)}` টি
 
 📂 মোট CSV ফাইল: `{len(dates)}` টি
+📄 প্রতি পৃষ্ঠায়: ১৫টি রেকর্ড
 """
 
     if dates:
@@ -637,7 +688,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "❌ CSV ফরম্যাটে ডাটা পাঠান। সাহায্যের জন্য `/help` দেখুন।\n\n"
             "উদাহরণ:\n"
-            "`BDCOM,Impulse (Wave 4),Sub-wave C,25.80-26.30,24.90,27.50,29.00,1:1.8,72,High,Accumulate`",
+            "`ADVENT,Impulse (Up),Wave 5 of 3,13.8-14.2,13.2,15.0,16.0,1:2.5,68,High,Accumulate`",
             parse_mode='Markdown'
         )
 
@@ -684,8 +735,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "🔍 **সিম্বল সার্চ**\n\n"
             "যে সিম্বল খুঁজতে চান তা টাইপ করুন:\n"
-            "উদাহরণ: `BDCOM`\n\n"
-            "অথবা কমান্ড ব্যবহার করুন: `/search BDCOM`",
+            "উদাহরণ: `ADVENT`\n\n"
+            "অথবা কমান্ড ব্যবহার করুন: `/search ADVENT`",
             parse_mode='Markdown'
         )
     
@@ -695,8 +746,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• `/list` - আজকের ডাটা\n"
             "• `/files` - ফাইলের তালিকা\n"
             "• `/view 25-03-2026` - ফাইল দেখুন\n"
-            "• `/search BDCOM` - সিম্বল খুঁজুন\n"
-            "• `/deletesymbol 25-03-2026 BDCOM` - সিম্বল ডিলিট\n"
+            "• `/search ADVENT` - সিম্বল খুঁজুন\n"
+            "• `/deletesymbol 25-03-2026 ADVENT` - সিম্বল ডিলিট\n"
             "• `/deletefile 25-03-2026` - ফাইল ডিলিট\n"
             "• `/clear` - আজকের ডাটা ক্লিয়ার\n"
             "• `/status` - স্ট্যাটাস\n\n"
@@ -756,6 +807,7 @@ async def run_bot():
         application.add_handler(CommandHandler("list", list_command))
         application.add_handler(CommandHandler("files", files_command))
         application.add_handler(CommandHandler("view", view_command))
+        application.add_handler(CommandHandler("view_page", view_page_command))
         application.add_handler(CommandHandler("search", search_command))
         application.add_handler(CommandHandler("deletesymbol", deletesymbol_command))
         application.add_handler(CommandHandler("deletefile", deletefile_command))
