@@ -6,11 +6,20 @@ import asyncio
 import io
 import tempfile
 import re
+import logging
 from datetime import datetime
 from flask import Flask, jsonify
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from huggingface_hub import HfApi, upload_file, list_repo_files, delete_file, hf_hub_download
+
+# Setup logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
@@ -28,52 +37,54 @@ class HuggingFaceManager:
         self.token = HF_TOKEN
         self.folder = HF_FOLDER
         self.repo_type = "dataset"
-        print(f"🔧 HF Manager initialized")
-        print(f"   Repo: {self.repo_id}")
-        print(f"   Type: {self.repo_type}")
-        print(f"   Token: {'✅ Yes' if self.token else '❌ No'}")
-        print(f"   Folder: {self.folder}")
+        logger.info(f"🔧 HF Manager initialized")
+        logger.info(f"   Repo: {self.repo_id}")
+        logger.info(f"   Type: {self.repo_type}")
+        logger.info(f"   Token: {'✅ Yes' if self.token else '❌ No'}")
+        logger.info(f"   Folder: {self.folder}")
 
     def get_all_csv_files(self):
         """সব CSV ফাইলের তালিকা"""
         if not self.token:
-            print("❌ No HF_TOKEN!")
+            logger.error("❌ No HF_TOKEN!")
             return []
 
         try:
-            print(f"🔍 Fetching files from {self.repo_id}...")
+            logger.info(f"🔍 Fetching files from {self.repo_id}...")
             files = list_repo_files(self.repo_id, token=self.token, repo_type=self.repo_type)
-            print(f"📁 Total files in repo: {len(files)}")
+            logger.info(f"📁 Total files in repo: {len(files)}")
 
             csv_files = [f for f in files if f.startswith(f"{self.folder}/") and f.endswith('.csv')]
-            print(f"📄 CSV files in {self.folder}: {len(csv_files)}")
+            logger.info(f"📄 CSV files in {self.folder}: {len(csv_files)}")
 
             for f in csv_files[:5]:
-                print(f"   - {f}")
+                logger.info(f"   - {f}")
 
             dates = [f.replace(f"{self.folder}/", "").replace(".csv", "") for f in csv_files]
             return sorted(dates, reverse=True)
 
         except Exception as e:
-            print(f"❌ Error getting files: {e}")
+            logger.error(f"❌ Error getting files: {e}")
             return []
 
     def read_csv_file(self, date):
         """নির্দিষ্ট তারিখের CSV ফাইল পড়ুন"""
         if not self.token:
-            print("❌ No HF_TOKEN!")
+            logger.error("❌ No HF_TOKEN!")
             return None
 
+        # Remove .csv if present
+        date = date.replace('.csv', '')
         filename = f"{self.folder}/{date}.csv"
-        print(f"🔍 Looking for: {filename}")
+        logger.info(f"🔍 Looking for: {filename}")
 
         try:
             files = list_repo_files(self.repo_id, token=self.token, repo_type=self.repo_type)
             if filename not in files:
-                print(f"❌ File not found: {filename}")
+                logger.error(f"❌ File not found: {filename}")
                 return None
 
-            print(f"✅ File found, downloading...")
+            logger.info(f"✅ File found, downloading...")
 
             temp_file = hf_hub_download(
                 repo_id=self.repo_id,
@@ -89,11 +100,11 @@ class HuggingFaceManager:
                 data = list(reader)
 
             os.remove(temp_file)
-            print(f"✅ Loaded {len(data)} records from {filename}")
+            logger.info(f"✅ Loaded {len(data)} records from {filename}")
             return data
 
         except Exception as e:
-            print(f"❌ Error reading file: {e}")
+            logger.error(f"❌ Error reading file: {e}")
             return None
 
     def save_csv_file(self, date, data):
@@ -154,7 +165,6 @@ class HuggingFaceManager:
         if data and data[0] and len(data[0]) > 0 and ('symbol' in data[0][0].lower() or 'সিম্বল' in data[0][0]):
             start_idx = 1
 
-        original_count = len(data) - start_idx
         new_data = data[:start_idx]  # Keep header if exists
         deleted_count = 0
 
@@ -173,7 +183,7 @@ class HuggingFaceManager:
         return False, msg
 
     def search_symbol_all_files(self, symbol):
-        """সব ফাইলে সিম্বল খুঁজুন - উন্নত ভার্সন"""
+        """সব ফাইলে সিম্বল খুঁজুন"""
         dates = self.get_all_csv_files()
         results = []
 
@@ -192,7 +202,7 @@ class HuggingFaceManager:
                             'row': row,
                             'line': start_idx + idx + 1
                         })
-                        break  # Found in this file, move to next
+                        break
 
         return results
 
@@ -208,15 +218,14 @@ class StockDataBot:
         """আজকের ডাটা লোড করুন"""
         data = hf_manager.read_csv_file(self.current_date)
         if data:
-            # Check if first row is header
             start_idx = 0
             if data and data[0] and len(data[0]) > 0 and ('symbol' in data[0][0].lower() or 'সিম্বল' in data[0][0]):
                 start_idx = 1
             self.current_data = data[start_idx:]
-            print(f"Loaded {len(self.current_data)} records for {self.current_date}")
+            logger.info(f"Loaded {len(self.current_data)} records for {self.current_date}")
         else:
             self.current_data = []
-            print(f"No data for {self.current_date}")
+            logger.info(f"No data for {self.current_date}")
 
     def add_csv_data(self, csv_text):
         """আজকের ডাটায় যোগ করুন"""
@@ -229,7 +238,6 @@ class StockDataBot:
                 continue
             row = [item.strip() for item in line.split(',')]
             if len(row) >= 2:
-                # Check if symbol already exists
                 exists = False
                 for existing in self.current_data:
                     if existing and len(existing) > 0 and existing[0].upper() == row[0].upper():
@@ -242,7 +250,6 @@ class StockDataBot:
                     added += 1
 
         if added > 0:
-            # Always save with headers
             headers = ["symbol", "এলিয়ট ওয়েব (বর্তমান অবস্থান)", "সাব-ওয়েব (বর্তমান অবস্থান)", 
                       "এন্ট্রি জোন (টাকা)", "স্টপ লস (টাকা)", "টেক প্রফিট ১ (টাকা)", 
                       "টেক প্রফিট ২ (টাকা)", "রিস্ক-রিওয়ার্ড অনুপাত (RRR)", 
@@ -271,20 +278,14 @@ class StockDataBot:
             return f"✅ {count} টি ডাটা মুছে ফেলা হয়েছে।"
         return f"⚠️ ডাটা ক্লিয়ার হয়েছে কিন্তু সেভ করতে পারেনি: {msg}"
 
-    def get_preview(self):
-        """আজকের ডাটার প্রিভিউ"""
-        if not self.current_data:
-            return f"📭 {self.current_date} তারিখের কোনো ডাটা নেই।"
-
-        return format_as_table(self.current_data, f"{self.current_date} - আজকের ডাটা", page=0, total_pages=1)
-
 bot = StockDataBot()
 
 # ==================== HELPER FUNCTIONS ====================
 
 def fix_date_format(date_str):
     """তারিখ ফরম্যাট ঠিক করা: 25-3-2026 -> 25-03-2026"""
-    date_str = date_str.strip()
+    # Remove .csv if present
+    date_str = date_str.replace('.csv', '').strip()
     pattern = r'^(\d{1,2})-(\d{1,2})-(\d{4})$'
     match = re.match(pattern, date_str)
     if match:
@@ -294,39 +295,35 @@ def fix_date_format(date_str):
         return f"{day}-{month}-{year}"
     return date_str
 
-def format_as_table(data, title, page=0, total_pages=1, items_per_page=15):
-    """সব কলাম সহ সুন্দর টেবিল আকারে ফরম্যাট করা - পেজিনেশন সহ"""
+def format_as_table(data, title, page=0, total_pages=1, items_per_page=15, context_name="list"):
+    """সব কলাম সহ সুন্দর টেবিল আকারে ফরম্যাট করা"""
     if not data:
         return f"📭 {title} - কোনো ডাটা নেই।"
 
-    # Calculate pagination
     total_items = len(data)
     start_idx = page * items_per_page
     end_idx = min(start_idx + items_per_page, total_items)
     page_data = data[start_idx:end_idx]
 
-    # Complete headers list
     headers = [
-        "#", "সিম্বল", "এলিয়ট ওয়েব (বর্তমান অবস্থান)", "সাব-ওয়েব (বর্তমান অবস্থান)",
-        "এন্ট্রি জোন (টাকা)", "স্টপ লস (টাকা)", "টেক প্রফিট ১ (টাকা)",
-        "টেক প্রফিট ২ (টাকা)", "RRR", "স্কোর", "কনফিডেন্স লেভেল", "অ্যাকশন"
+        "#", "সিম্বল", "এলিয়ট ওয়েব", "সাব-ওয়েব",
+        "এন্ট্রি", "স্টপ লস", "TP1", "TP2", "RRR", "স্কোর", "কনফিডেন্স", "অ্যাকশন"
     ]
 
     # Calculate column widths
-    col_widths = [3]  # # column
-    col_widths.append(max(12, max(len(row[0][:20]) for row in page_data) if page_data else 12))  # সিম্বল
-    col_widths.append(max(25, max(len(row[1][:30]) for row in page_data) if len(page_data) > 0 and len(row) > 1 else 25))  # এলিয়ট ওয়েব
-    col_widths.append(max(20, max(len(row[2][:25]) for row in page_data) if len(page_data) > 0 and len(row) > 2 else 20))  # সাব-ওয়েব
-    col_widths.append(max(15, max(len(row[3][:18]) for row in page_data) if len(page_data) > 0 and len(row) > 3 else 15))  # এন্ট্রি
-    col_widths.append(max(12, max(len(row[4][:15]) for row in page_data) if len(page_data) > 0 and len(row) > 4 else 12))  # স্টপ লস
-    col_widths.append(max(15, max(len(row[5][:18]) for row in page_data) if len(page_data) > 0 and len(row) > 5 else 15))  # TP1
-    col_widths.append(max(15, max(len(row[6][:18]) for row in page_data) if len(page_data) > 0 and len(row) > 6 else 15))  # TP2
-    col_widths.append(max(8, max(len(row[7][:10]) for row in page_data) if len(page_data) > 0 and len(row) > 7 else 8))   # RRR
-    col_widths.append(max(8, max(len(row[8][:10]) for row in page_data) if len(page_data) > 0 and len(row) > 8 else 8))   # স্কোর
-    col_widths.append(max(15, max(len(row[9][:18]) for row in page_data) if len(page_data) > 0 and len(row) > 9 else 15))  # কনফিডেন্স
-    col_widths.append(max(15, max(len(row[10][:18]) for row in page_data) if len(page_data) > 0 and len(row) > 10 else 15)) # অ্যাকশন
+    col_widths = [3]
+    col_widths.append(max(12, max(len(row[0][:20]) for row in page_data) if page_data else 12))
+    col_widths.append(max(20, max(len(row[1][:25]) for row in page_data) if page_data and len(row) > 1 else 20))
+    col_widths.append(max(15, max(len(row[2][:20]) for row in page_data) if page_data and len(row) > 2 else 15))
+    col_widths.append(max(12, max(len(row[3][:15]) for row in page_data) if page_data and len(row) > 3 else 12))
+    col_widths.append(max(10, max(len(row[4][:12]) for row in page_data) if page_data and len(row) > 4 else 10))
+    col_widths.append(max(12, max(len(row[5][:15]) for row in page_data) if page_data and len(row) > 5 else 12))
+    col_widths.append(max(12, max(len(row[6][:15]) for row in page_data) if page_data and len(row) > 6 else 12))
+    col_widths.append(max(6, max(len(row[7][:8]) for row in page_data) if page_data and len(row) > 7 else 6))
+    col_widths.append(max(6, max(len(row[8][:8]) for row in page_data) if page_data and len(row) > 8 else 6))
+    col_widths.append(max(12, max(len(row[9][:15]) for row in page_data) if page_data and len(row) > 9 else 12))
+    col_widths.append(max(12, max(len(row[10][:15]) for row in page_data) if page_data and len(row) > 10 else 12))
 
-    # Create header row
     page_info = f" (পৃষ্ঠা {page+1}/{total_pages})" if total_pages > 1 else ""
     table = f"📊 **{title}{page_info} - মোট {total_items} টি রেকর্ড:**\n\n```\n"
     
@@ -348,29 +345,29 @@ def format_as_table(data, title, page=0, total_pages=1, items_per_page=15):
     for idx, row in enumerate(page_data):
         global_idx = start_idx + idx + 1
         for i in range(len(headers)):
-            if i == 0:  # Serial number
+            if i == 0:
                 val = str(global_idx)
-            elif i == 1:  # Symbol
+            elif i == 1:
                 val = row[0][:col_widths[i]-2] if len(row[0]) > col_widths[i]-2 else row[0]
-            elif i == 2:  # Elliott Wave
+            elif i == 2:
                 val = row[1][:col_widths[i]-2] if len(row[1]) > col_widths[i]-2 else row[1]
-            elif i == 3:  # Sub-wave
+            elif i == 3:
                 val = row[2][:col_widths[i]-2] if len(row[2]) > col_widths[i]-2 else row[2]
-            elif i == 4:  # Entry
+            elif i == 4:
                 val = row[3][:col_widths[i]-2] if len(row[3]) > col_widths[i]-2 else row[3]
-            elif i == 5:  # Stop Loss
+            elif i == 5:
                 val = row[4][:col_widths[i]-2] if len(row[4]) > col_widths[i]-2 else row[4]
-            elif i == 6:  # TP1
+            elif i == 6:
                 val = row[5][:col_widths[i]-2] if len(row[5]) > col_widths[i]-2 else row[5]
-            elif i == 7:  # TP2
+            elif i == 7:
                 val = row[6][:col_widths[i]-2] if len(row[6]) > col_widths[i]-2 else row[6]
-            elif i == 8:  # RRR
+            elif i == 8:
                 val = row[7][:col_widths[i]-2] if len(row[7]) > col_widths[i]-2 else row[7]
-            elif i == 9:  # Score
+            elif i == 9:
                 val = row[8][:col_widths[i]-2] if len(row[8]) > col_widths[i]-2 else row[8]
-            elif i == 10:  # Confidence
+            elif i == 10:
                 val = row[9][:col_widths[i]-2] if len(row[9]) > col_widths[i]-2 else row[9]
-            elif i == 11:  # Action
+            elif i == 11:
                 val = row[10][:col_widths[i]-2] if len(row[10]) > col_widths[i]-2 else row[10]
             else:
                 val = ""
@@ -382,45 +379,35 @@ def format_as_table(data, title, page=0, total_pages=1, items_per_page=15):
 
     table += "```"
     
-    # Add pagination controls
     if total_pages > 1:
-        table += f"\n\n📄 **পৃষ্ঠা {page+1}/{total_pages}**\n"
-        table += f"💡 **নেভিগেশন:**\n"
+        table += f"\n\n📄 **পৃষ্ঠা {page+1}/{total_pages}**"
+        table += f"\n💡 **নেভিগেশন:**"
         if page > 0:
-            table += f"   • আগের পৃষ্ঠা: `/{context}_page {page}`\n"
+            table += f"\n   • আগের পৃষ্ঠা: `/{context_name}_page {page}`"
         if page < total_pages - 1:
-            table += f"   • পরের পৃষ্ঠা: `/{context}_page {page+2}`\n"
-        table += f"   • নির্দিষ্ট পৃষ্ঠা: `/{context}_page [পৃষ্ঠা নম্বর]`"
+            table += f"\n   • পরের পৃষ্ঠা: `/{context_name}_page {page+2}`"
     
     return table
-
-# Global variables for pagination
-current_view_data = {}
-current_search_data = {}
 
 # ==================== TELEGRAM HANDLERS ====================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("📊 আজকের ডাটা", callback_data="list")],
+        [InlineKeyboardButton("📁 ফাইলের তালিকা", callback_data="files")],
+        [InlineKeyboardButton("🔍 সিম্বল সার্চ", callback_data="search_prompt")],
+        [InlineKeyboardButton("❓ সাহায্য", callback_data="help")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
     await update.message.reply_text(
         "🤖 **স্টক ডাটা বট - Hugging Face স্টোরেজ**\n\n"
+        "আমি স্টক ডাটা ম্যানেজ করতে সাহায্য করি। নিচের বাটন ব্যবহার করুন অথবা কমান্ড টাইপ করুন।\n\n"
         "📝 **ডাটা যোগ করুন:**\n"
         "CSV ফরম্যাটে ডাটা পাঠান:\n"
-        "`BDCOM,Impulse (Wave 4),Sub-wave C,25.80-26.30,24.90,27.50,29.00,1:1.8,72,High,Accumulate`\n\n"
-        "📚 **কমান্ড:**\n"
-        "`/help` - সব কমান্ড দেখুন\n"
-        "`/list` - আজকের ডাটা দেখুন (সব কলাম)\n"
-        "`/list_page [পৃষ্ঠা]` - আজকের ডাটার নির্দিষ্ট পৃষ্ঠা দেখুন\n"
-        "`/files` - সব CSV ফাইলের তালিকা\n"
-        "`/view [তারিখ]` - ফাইল দেখুন (সব কলাম)\n"
-        "`/view_page [তারিখ] [পৃষ্ঠা]` - ফাইলের নির্দিষ্ট পৃষ্ঠা দেখুন\n"
-        "`/symbols [তারিখ]` - ফাইলের সিম্বল দেখুন\n"
-        "`/search [সিম্বল]` - সব ফাইলে সিম্বল খুঁজুন (সব কলাম)\n"
-        "`/search_page [সিম্বল] [পৃষ্ঠা]` - সার্চের নির্দিষ্ট পৃষ্ঠা দেখুন\n"
-        "`/deletesymbol [তারিখ] [সিম্বল]` - সিম্বল ডিলিট\n"
-        "`/deletefile [তারিখ]` - ফাইল ডিলিট\n"
-        "`/clear` - আজকের ডাটা ক্লিয়ার\n"
-        "`/status` - স্ট্যাটাস দেখুন",
-        parse_mode='Markdown'
+        "`BDCOM,Impulse (Wave 4),Sub-wave C,25.80-26.30,24.90,27.50,29.00,1:1.8,72,High,Accumulate`",
+        parse_mode='Markdown',
+        reply_markup=reply_markup
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -436,24 +423,20 @@ CSV ফরম্যাটে ডাটা পাঠান:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📁 **ফাইল ম্যানেজমেন্ট**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• `/files` - সব CSV ফাইলের তালিকা দেখুন
-• `/view 25-03-2026` - ফাইল দেখুন (প্রথম পৃষ্ঠা)
-• `/view_page 25-03-2026 2` - ফাইলের ২য় পৃষ্ঠা দেখুন
+• `/files` - সব CSV ফাইলের তালিকা (ক্লিকযোগ্য লিংক)
+• `/view 25-03-2026` - ফাইল দেখুন
 • `/deletefile 25-03-2026` - ফাইল ডিলিট করুন
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔍 **সিম্বল ম্যানেজমেন্ট**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• `/symbols 25-03-2026` - ফাইলের সিম্বল দেখুন
-• `/deletesymbol 25-03-2026 BDCOM` - সিম্বল ডিলিট
 • `/search BDCOM` - সব ফাইলে সিম্বল খুঁজুন
-• `/search_page BDCOM 2` - সার্চের ২য় পৃষ্ঠা দেখুন
+• `/deletesymbol 25-03-2026 BDCOM` - সিম্বল ডিলিট
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📊 **আজকের ডাটা**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• `/list` - আজকের ডাটা দেখুন (প্রথম পৃষ্ঠা)
-• `/list_page 2` - আজকের ডাটার ২য় পৃষ্ঠা দেখুন
+• `/list` - আজকের ডাটা দেখুন
 • `/clear` - আজকের সব ডাটা মুছুন
 • `/yesclear` - ক্লিয়ার কনফার্ম
 
@@ -463,18 +446,215 @@ CSV ফরম্যাটে ডাটা পাঠান:
 • `/status` - বটের স্ট্যাটাস দেখুন
 • `/cancel` - চলমান অপারেশন বাতিল করুন
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📂 **স্টোরেজ লোকেশন**
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Hugging Face: `ahashanahmed/csv/stock/`
-ফাইল ফরম্যাট: `stock/DD-MM-YYYY.csv`
-
-💡 **টিপস:**
-• প্রতিটি পৃষ্ঠায় ১৫টি করে রেকর্ড দেখানো হয়
-• পৃষ্ঠা নম্বর ১ থেকে শুরু
-• বেশি ডাটা থাকলে পেজিনেশন ব্যবহার করুন
+💡 **টিপস:** ফাইলের তালিকায় ক্লিক করেই ফাইল দেখতে পারবেন!
 """
     await update.message.reply_text(help_text, parse_mode='Markdown')
+
+async def files_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """সব CSV ফাইলের তালিকা - ক্লিকযোগ্য বাটন সহ"""
+    dates = hf_manager.get_all_csv_files()
+
+    if not dates:
+        await update.message.reply_text("📭 কোনো CSV ফাইল নেই।")
+        return
+
+    # Create inline keyboard with file buttons
+    keyboard = []
+    for date in dates:
+        keyboard.append([InlineKeyboardButton(f"📄 {date}.csv", callback_data=f"view_{date}")])
+    
+    # Add navigation buttons
+    keyboard.append([InlineKeyboardButton("🔙 ব্যাক", callback_data="back_to_menu")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        f"📁 **CSV ফাইলের তালিকা ({len(dates)} টি):**\n\n"
+        f"নিচের বাটনে ক্লিক করে ফাইল দেখুন:",
+        parse_mode='Markdown',
+        reply_markup=reply_markup
+    )
+
+async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """নির্দিষ্ট ফাইল দেখান"""
+    if not context.args:
+        await update.message.reply_text("❌ তারিখ দিন। উদাহরণ: `/view 25-03-2026`")
+        return
+
+    date = fix_date_format(context.args[0])
+    status_msg = await update.message.reply_text(f"⏳ `{date}.csv` ফাইল খুঁজছি...", parse_mode='Markdown')
+
+    data = hf_manager.read_csv_file(date)
+
+    if data is None:
+        dates = hf_manager.get_all_csv_files()
+        if dates:
+            # Show clickable file list
+            keyboard = []
+            for d in dates:
+                keyboard.append([InlineKeyboardButton(f"📄 {d}.csv", callback_data=f"view_{d}")])
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await status_msg.edit_text(
+                f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।\n\n"
+                f"📁 **আপনার ফাইলগুলি:**\nনিচের বাটনে ক্লিক করুন:",
+                parse_mode='Markdown',
+                reply_markup=reply_markup
+            )
+        else:
+            await status_msg.edit_text(f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।", parse_mode='Markdown')
+        return
+
+    if not data:
+        await status_msg.edit_text(f"📭 `{date}.csv` ফাইলটি খালি।", parse_mode='Markdown')
+        return
+
+    # Check if first row is header and skip it
+    start_idx = 0
+    if data and data[0] and len(data[0]) > 0 and ('symbol' in data[0][0].lower() or 'সিম্বল' in data[0][0]):
+        start_idx = 1
+
+    actual_data = data[start_idx:]
+    
+    # Store data for pagination
+    context.user_data['current_view_data'] = actual_data
+    context.user_data['current_view_date'] = date
+    
+    total_items = len(actual_data)
+    items_per_page = 15
+    total_pages = (total_items + items_per_page - 1) // items_per_page
+    
+    table = format_as_table(actual_data, f"{date}.csv", 
+                           page=0, total_pages=total_pages, context_name=f"view_page {date}")
+    
+    # Add back button
+    keyboard = [[InlineKeyboardButton("🔙 ফাইলের তালিকা", callback_data="files")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await status_msg.edit_text(table, parse_mode='Markdown', reply_markup=reply_markup)
+
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle inline button clicks"""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    
+    if data == "list":
+        # Show today's data
+        if not bot.current_data:
+            await query.edit_message_text(f"📭 {bot.current_date} তারিখের কোনো ডাটা নেই।")
+            return
+        
+        total_items = len(bot.current_data)
+        items_per_page = 15
+        total_pages = (total_items + items_per_page - 1) // items_per_page
+        
+        context.user_data['current_list_data'] = bot.current_data
+        
+        table = format_as_table(bot.current_data, f"{bot.current_date} - আজকের ডাটা", 
+                               page=0, total_pages=total_pages, context_name="list")
+        
+        keyboard = [[InlineKeyboardButton("🔙 মেনুতে ফিরুন", callback_data="back_to_menu")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(table, parse_mode='Markdown', reply_markup=reply_markup)
+    
+    elif data == "files":
+        # Show file list
+        dates = hf_manager.get_all_csv_files()
+        
+        if not dates:
+            await query.edit_message_text("📭 কোনো CSV ফাইল নেই।")
+            return
+        
+        keyboard = []
+        for date in dates:
+            keyboard.append([InlineKeyboardButton(f"📄 {date}.csv", callback_data=f"view_{date}")])
+        keyboard.append([InlineKeyboardButton("🔙 মেনুতে ফিরুন", callback_data="back_to_menu")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            f"📁 **CSV ফাইলের তালিকা ({len(dates)} টি):**\n\nনিচের বাটনে ক্লিক করে ফাইল দেখুন:",
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
+    
+    elif data == "search_prompt":
+        # Ask for symbol to search
+        await query.edit_message_text(
+            "🔍 **সিম্বল সার্চ**\n\n"
+            "যে সিম্বল খুঁজতে চান তা টাইপ করুন:\n"
+            "উদাহরণ: `BDCOM`\n\n"
+            "অথবা কমান্ড ব্যবহার করুন: `/search BDCOM`",
+            parse_mode='Markdown'
+        )
+    
+    elif data == "help":
+        await help_command(update, context)
+        await query.delete_message()
+    
+    elif data == "back_to_menu":
+        # Show main menu
+        keyboard = [
+            [InlineKeyboardButton("📊 আজকের ডাটা", callback_data="list")],
+            [InlineKeyboardButton("📁 ফাইলের তালিকা", callback_data="files")],
+            [InlineKeyboardButton("🔍 সিম্বল সার্চ", callback_data="search_prompt")],
+            [InlineKeyboardButton("❓ সাহায্য", callback_data="help")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            "🤖 **স্টক ডাটা বট - Hugging Face স্টোরেজ**\n\n"
+            "আমি স্টক ডাটা ম্যানেজ করতে সাহায্য করি। নিচের বাটন ব্যবহার করুন:\n\n"
+            "📝 **ডাটা যোগ করুন:**\n"
+            "CSV ফরম্যাটে ডাটা পাঠান:\n"
+            "`BDCOM,Impulse (Wave 4),Sub-wave C,25.80-26.30,24.90,27.50,29.00,1:1.8,72,High,Accumulate`",
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
+    
+    elif data.startswith("view_"):
+        # View specific file
+        date = data.replace("view_", "")
+        
+        status_msg = await query.edit_message_text(f"⏳ `{date}.csv` ফাইল খুঁজছি...", parse_mode='Markdown')
+        
+        file_data = hf_manager.read_csv_file(date)
+        
+        if file_data is None:
+            await status_msg.edit_text(f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।")
+            return
+        
+        if not file_data:
+            await status_msg.edit_text(f"📭 `{date}.csv` ফাইলটি খালি।")
+            return
+        
+        # Skip header if exists
+        start_idx = 0
+        if file_data and file_data[0] and len(file_data[0]) > 0 and ('symbol' in file_data[0][0].lower() or 'সিম্বল' in file_data[0][0]):
+            start_idx = 1
+        
+        actual_data = file_data[start_idx:]
+        
+        context.user_data['current_view_data'] = actual_data
+        context.user_data['current_view_date'] = date
+        
+        total_items = len(actual_data)
+        items_per_page = 15
+        total_pages = (total_items + items_per_page - 1) // items_per_page
+        
+        table = format_as_table(actual_data, f"{date}.csv", 
+                               page=0, total_pages=total_pages, context_name=f"view_page {date}")
+        
+        keyboard = [
+            [InlineKeyboardButton("🔙 ফাইলের তালিকা", callback_data="files")],
+            [InlineKeyboardButton("🏠 মেনুতে ফিরুন", callback_data="back_to_menu")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await status_msg.edit_text(table, parse_mode='Markdown', reply_markup=reply_markup)
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
@@ -495,7 +675,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """আজকের ডাটা সব কলাম সহ টেবিল আকারে দেখান - প্রথম পৃষ্ঠা"""
+    """আজকের ডাটা দেখান"""
     if not bot.current_data:
         await update.message.reply_text(f"📭 {bot.current_date} তারিখের কোনো ডাটা নেই।")
         return
@@ -504,52 +684,15 @@ async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     items_per_page = 15
     total_pages = (total_items + items_per_page - 1) // items_per_page
     
-    # Store data for pagination
     context.user_data['current_list_data'] = bot.current_data
-    context.user_data['current_list_title'] = f"{bot.current_date} - আজকের ডাটা"
     
-    table = format_as_table(bot.current_data, f"{bot.current_date} - আজকের ডাটা", page=0, total_pages=total_pages)
+    table = format_as_table(bot.current_data, f"{bot.current_date} - আজকের ডাটা", 
+                           page=0, total_pages=total_pages, context_name="list")
     
-    # Replace context placeholder with actual command
-    table = table.replace('{context}', 'list')
+    keyboard = [[InlineKeyboardButton("🔙 মেনুতে ফিরুন", callback_data="back_to_menu")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await update.message.reply_text(table, parse_mode='Markdown')
-
-async def list_page_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """আজকের ডাটার নির্দিষ্ট পৃষ্ঠা দেখান"""
-    if not context.args:
-        await update.message.reply_text("❌ পৃষ্ঠা নম্বর দিন। উদাহরণ: `/list_page 2`")
-        return
-    
-    try:
-        page = int(context.args[0]) - 1  # Convert to 0-based index
-        if page < 0:
-            page = 0
-    except ValueError:
-        await update.message.reply_text("❌ সঠিক পৃষ্ঠা নম্বর দিন।")
-        return
-    
-    data = context.user_data.get('current_list_data')
-    if not data:
-        data = bot.current_data
-        context.user_data['current_list_data'] = data
-    
-    if not data:
-        await update.message.reply_text(f"📭 {bot.current_date} তারিখের কোনো ডাটা নেই।")
-        return
-    
-    total_items = len(data)
-    items_per_page = 15
-    total_pages = (total_items + items_per_page - 1) // items_per_page
-    
-    if page >= total_pages:
-        await update.message.reply_text(f"❌ সর্বশেষ পৃষ্ঠা: {total_pages}")
-        return
-    
-    table = format_as_table(data, f"{bot.current_date} - আজকের ডাটা", page=page, total_pages=total_pages)
-    table = table.replace('{context}', 'list')
-    
-    await update.message.reply_text(table, parse_mode='Markdown')
+    await update.message.reply_text(table, parse_mode='Markdown', reply_markup=reply_markup)
 
 async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⚠️ আজকের সব ডাটা মুছে যাবে। `/yesclear` দিয়ে কনফার্ম করুন।", parse_mode='Markdown')
@@ -560,127 +703,9 @@ async def yesclear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         result = bot.clear_current_data()
         await update.message.reply_text(result)
         context.user_data['confirm'] = False
-        # Clear stored data
         context.user_data.pop('current_list_data', None)
     else:
         await update.message.reply_text("❌ আগে `/clear` দিন।", parse_mode='Markdown')
-
-async def files_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """সব CSV ফাইলের তালিকা"""
-    dates = hf_manager.get_all_csv_files()
-
-    if not dates:
-        await update.message.reply_text("📭 কোনো CSV ফাইল নেই।")
-        return
-
-    file_list = "\n".join([f"📄 `{date}.csv`" for date in dates])
-    await update.message.reply_text(
-        f"📁 **CSV ফাইলের তালিকা ({len(dates)} টি):**\n\n{file_list}\n\n"
-        f"ফাইল দেখতে: `/view [তারিখ]`\n"
-        f"ফাইল ডিলিট: `/deletefile [তারিখ]`",
-        parse_mode='Markdown'
-    )
-
-async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """নির্দিষ্ট ফাইল সব কলাম সহ টেবিল আকারে দেখান - প্রথম পৃষ্ঠা"""
-    if not context.args:
-        await update.message.reply_text("❌ তারিখ দিন। উদাহরণ: `/view 25-03-2026`")
-        return
-
-    date = fix_date_format(context.args[0])
-    status_msg = await update.message.reply_text(f"⏳ `{date}.csv` ফাইল খুঁজছি...", parse_mode='Markdown')
-
-    data = hf_manager.read_csv_file(date)
-
-    if data is None:
-        dates = hf_manager.get_all_csv_files()
-        if dates:
-            file_list = "\n".join([f"• `{d}.csv`" for d in dates])
-            await status_msg.edit_text(
-                f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।\n\n"
-                f"📁 **আপনার ফাইলগুলি:**\n{file_list}",
-                parse_mode='Markdown'
-            )
-        else:
-            await status_msg.edit_text(f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।", parse_mode='Markdown')
-        return
-
-    if not data:
-        await status_msg.edit_text(f"📭 `{date}.csv` ফাইলটি খালি।", parse_mode='Markdown')
-        return
-
-    # Check if first row is header and skip it
-    start_idx = 0
-    if data and data[0] and len(data[0]) > 0 and ('symbol' in data[0][0].lower() or 'সিম্বল' in data[0][0]):
-        start_idx = 1
-
-    actual_data = data[start_idx:]
-    
-    # Store data for pagination
-    context.user_data['current_view_data'] = actual_data
-    context.user_data['current_view_title'] = f"{date}.csv"
-    context.user_data['current_view_date'] = date
-    
-    total_items = len(actual_data)
-    items_per_page = 15
-    total_pages = (total_items + items_per_page - 1) // items_per_page
-    
-    table = format_as_table(actual_data, f"{date}.csv", page=0, total_pages=total_pages)
-    table = table.replace('{context}', f'view_page {date}')
-    
-    await status_msg.edit_text(table, parse_mode='Markdown')
-
-async def view_page_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """নির্দিষ্ট ফাইলের নির্দিষ্ট পৃষ্ঠা দেখান"""
-    if len(context.args) < 2:
-        await update.message.reply_text("❌ তারিখ এবং পৃষ্ঠা নম্বর দিন। উদাহরণ: `/view_page 25-03-2026 2`")
-        return
-    
-    date = fix_date_format(context.args[0])
-    try:
-        page = int(context.args[1]) - 1  # Convert to 0-based index
-        if page < 0:
-            page = 0
-    except ValueError:
-        await update.message.reply_text("❌ সঠিক পৃষ্ঠা নম্বর দিন।")
-        return
-    
-    # Check if we have stored data for this date
-    stored_data = context.user_data.get('current_view_data')
-    stored_date = context.user_data.get('current_view_date')
-    
-    if stored_data and stored_date == date:
-        actual_data = stored_data
-    else:
-        # Load fresh data
-        data = hf_manager.read_csv_file(date)
-        if data is None:
-            await update.message.reply_text(f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।", parse_mode='Markdown')
-            return
-        
-        start_idx = 0
-        if data and data[0] and len(data[0]) > 0 and ('symbol' in data[0][0].lower() or 'সিম্বল' in data[0][0]):
-            start_idx = 1
-        actual_data = data[start_idx:]
-        context.user_data['current_view_data'] = actual_data
-        context.user_data['current_view_date'] = date
-    
-    if not actual_data:
-        await update.message.reply_text(f"📭 `{date}.csv` ফাইলটি খালি।", parse_mode='Markdown')
-        return
-    
-    total_items = len(actual_data)
-    items_per_page = 15
-    total_pages = (total_items + items_per_page - 1) // items_per_page
-    
-    if page >= total_pages:
-        await update.message.reply_text(f"❌ সর্বশেষ পৃষ্ঠা: {total_pages}")
-        return
-    
-    table = format_as_table(actual_data, f"{date}.csv", page=page, total_pages=total_pages)
-    table = table.replace('{context}', f'view_page {date}')
-    
-    await update.message.reply_text(table, parse_mode='Markdown')
 
 async def deletefile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
@@ -705,75 +730,9 @@ async def confirmdelete_command(update: Update, context: ContextTypes.DEFAULT_TY
     success, msg = hf_manager.delete_csv_file(date)
     await update.message.reply_text(msg)
     context.user_data['delete_file'] = None
-    # Clear stored view data if it matches deleted file
-    if context.user_data.get('current_view_date') == date:
-        context.user_data.pop('current_view_data', None)
-        context.user_data.pop('current_view_date', None)
-
-async def symbols_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ফাইলের সিম্বল লিস্ট দেখান"""
-    date = fix_date_format(context.args[0]) if context.args else bot.current_date
-    status_msg = await update.message.reply_text(f"⏳ `{date}.csv` ফাইল থেকে সিম্বল খুঁজছি...", parse_mode='Markdown')
-
-    data = hf_manager.read_csv_file(date)
-
-    if data is None:
-        dates = hf_manager.get_all_csv_files()
-        if dates:
-            file_list = "\n".join([f"• `{d}.csv`" for d in dates])
-            await status_msg.edit_text(
-                f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।\n\n"
-                f"📁 **আপনার ফাইলগুলি:**\n{file_list}",
-                parse_mode='Markdown'
-            )
-        else:
-            await status_msg.edit_text(f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।", parse_mode='Markdown')
-        return
-
-    if not data:
-        await status_msg.edit_text(f"📭 `{date}.csv` ফাইলটি খালি।", parse_mode='Markdown')
-        return
-
-    # Check if first row is header
-    start_idx = 0
-    if data and data[0] and len(data[0]) > 0 and ('symbol' in data[0][0].lower() or 'সিম্বল' in data[0][0]):
-        start_idx = 1
-
-    symbols = [row[0] for row in data[start_idx:] if row and len(row) > 0]
-
-    # Display symbols in a nice format
-    if not symbols:
-        await status_msg.edit_text(f"📭 `{date}.csv` ফাইলে কোনো সিম্বল নেই।", parse_mode='Markdown')
-        return
-
-    symbol_list = "\n".join([f"{i+1}. `{s}`" for i, s in enumerate(symbols)])
-    await status_msg.edit_text(
-        f"📋 **{date}.csv - সিম্বল লিস্ট ({len(symbols)} টি):**\n\n{symbol_list}\n\n"
-        f"💡 সিম্বল ডিলিট: `/deletesymbol {date} [সিম্বল]`",
-        parse_mode='Markdown'
-    )
-
-async def deletesymbol_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) < 2:
-        await update.message.reply_text(
-            "❌ তারিখ এবং সিম্বল দিন। উদাহরণ: `/deletesymbol 25-03-2026 BDCOM`",
-            parse_mode='Markdown'
-        )
-        return
-
-    date = fix_date_format(context.args[0])
-    symbol = context.args[1].upper()
-
-    await update.message.reply_text(f"⏳ '{symbol}' ডিলিট করা হচ্ছে...")
-    success, msg = hf_manager.delete_symbol_from_file(date, symbol)
-    await update.message.reply_text(msg)
-    
-    # Clear cached data for this date
-    if context.user_data.get('current_view_date') == date:
-        context.user_data.pop('current_view_data', None)
 
 async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """সব ফাইলে সিম্বল খুঁজুন - সব কলাম সহ টেবিল আকারে - প্রথম পৃষ্ঠা"""
+    """সব ফাইলে সিম্বল খুঁজুন"""
     if not context.args:
         await update.message.reply_text("❌ সিম্বল দিন। উদাহরণ: `/search BDCOM`")
         return
@@ -794,128 +753,46 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await status_msg.edit_text(f"❌ '{search_symbol}' কোনো ফাইলে পাওয়া যায়নি।")
             return
         
-        # Store results for pagination
-        context.user_data['current_search_results'] = results
-        context.user_data['current_search_symbol'] = search_symbol
+        # Format search results
+        result_text = f"🔍 **'{search_symbol}' পাওয়া গেছে {len(results)} টি ফাইলে:**\n\n```\n"
+        result_text += f"{'#':<3} {'তারিখ':<12} {'সিম্বল':<12} {'এলিয়ট ওয়েব':<25} {'অ্যাকশন':<20}\n"
+        result_text += "-" * 80 + "\n"
+
+        for i, r in enumerate(results[:20]):
+            date = r['date'][:12]
+            symbol = r['row'][0][:12] if len(r['row'][0]) > 12 else r['row'][0]
+            wave = r['row'][1][:25] if len(r['row'][1]) > 25 else r['row'][1]
+            action = r['row'][10][:20] if len(r['row'][10]) > 20 else r['row'][10]
+            result_text += f"{i+1:<3} {date:<12} {symbol:<12} {wave:<25} {action:<20}\n"
+
+        result_text += "```"
         
-        total_items = len(results)
-        items_per_page = 10  # Less items per page for search results due to more columns
-        total_pages = (total_items + items_per_page - 1) // items_per_page
+        if len(results) > 20:
+            result_text += f"\n\n... এবং {len(results) - 20} টি বেশি"
+
+        keyboard = [[InlineKeyboardButton("🔙 মেনুতে ফিরুন", callback_data="back_to_menu")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await send_search_results(update, context, results, search_symbol, 0, total_pages, status_msg)
-        
+        await status_msg.edit_text(result_text, parse_mode='Markdown', reply_markup=reply_markup)
+
     except Exception as e:
+        logger.error(f"Search error: {e}")
         await status_msg.edit_text(f"❌ ত্রুটি: {str(e)}")
 
-async def search_page_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """সার্চ রেজাল্টের নির্দিষ্ট পৃষ্ঠা দেখান"""
+async def deletesymbol_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 2:
-        await update.message.reply_text("❌ সিম্বল এবং পৃষ্ঠা নম্বর দিন। উদাহরণ: `/search_page BDCOM 2`")
+        await update.message.reply_text(
+            "❌ তারিখ এবং সিম্বল দিন। উদাহরণ: `/deletesymbol 25-03-2026 BDCOM`",
+            parse_mode='Markdown'
+        )
         return
-    
-    search_symbol = context.args[0].upper()
-    try:
-        page = int(context.args[1]) - 1  # Convert to 0-based index
-        if page < 0:
-            page = 0
-    except ValueError:
-        await update.message.reply_text("❌ সঠিক পৃষ্ঠা নম্বর দিন।")
-        return
-    
-    # Check if we have stored results
-    stored_results = context.user_data.get('current_search_results')
-    stored_symbol = context.user_data.get('current_search_symbol')
-    
-    if stored_results and stored_symbol == search_symbol:
-        results = stored_results
-    else:
-        # Perform new search
-        await update.message.reply_text(f"🔍 '{search_symbol}' খুঁজছি...")
-        dates = hf_manager.get_all_csv_files()
-        if not dates:
-            await update.message.reply_text("📭 কোনো CSV ফাইল নেই।")
-            return
-        results = hf_manager.search_symbol_all_files(search_symbol)
-        if not results:
-            await update.message.reply_text(f"❌ '{search_symbol}' কোনো ফাইলে পাওয়া যায়নি।")
-            return
-        context.user_data['current_search_results'] = results
-        context.user_data['current_search_symbol'] = search_symbol
-    
-    total_items = len(results)
-    items_per_page = 10
-    total_pages = (total_items + items_per_page - 1) // items_per_page
-    
-    if page >= total_pages:
-        await update.message.reply_text(f"❌ সর্বশেষ পৃষ্ঠা: {total_pages}")
-        return
-    
-    await send_search_results(update, context, results, search_symbol, page, total_pages, None)
 
-async def send_search_results(update, context, results, search_symbol, page, total_pages, status_msg=None):
-    """সার্চ রেজাল্ট পাঠানোর ফাংশন"""
-    items_per_page = 10
-    start_idx = page * items_per_page
-    end_idx = min(start_idx + items_per_page, len(results))
-    page_results = results[start_idx:end_idx]
-    
-    # Complete headers list for search results
-    headers = ["#", "তারিখ", "সিম্বল", "এলিয়ট ওয়েব", "সাব-ওয়েব", "এন্ট্রি", 
-               "স্টপ লস", "TP1", "TP2", "RRR", "স্কোর", "কনফিডেন্স", "অ্যাকশন"]
-    
-    col_widths = [3, 12, 12, 25, 20, 15, 12, 15, 15, 8, 8, 15, 15]
-    
-    page_info = f" (পৃষ্ঠা {page+1}/{total_pages})" if total_pages > 1 else ""
-    result_text = f"🔍 **'{search_symbol}' পাওয়া গেছে {len(results)} টি ফাইলে{page_info}:**\n\n```\n"
-    
-    # Header
-    for i, header in enumerate(headers):
-        result_text += f"{header:<{col_widths[i]}}"
-        if i < len(headers) - 1:
-            result_text += " │ "
-    result_text += "\n"
-    
-    # Separator
-    for i, width in enumerate(col_widths):
-        result_text += "─" * width
-        if i < len(col_widths) - 1:
-            result_text += "─┼─"
-    result_text += "\n"
+    date = fix_date_format(context.args[0])
+    symbol = context.args[1].upper()
 
-    # Data rows
-    for idx, result in enumerate(page_results):
-        global_idx = start_idx + idx + 1
-        row = result['row']
-        date = result['date'][:12]
-        
-        data_cols = [
-            str(global_idx), date, row[0][:12], row[1][:25], row[2][:20], 
-            row[3][:15], row[4][:12], row[5][:15], row[6][:15], 
-            row[7][:8], row[8][:8], row[9][:15], row[10][:15]
-        ]
-        
-        for i, val in enumerate(data_cols):
-            result_text += f"{val:<{col_widths[i]}}"
-            if i < len(col_widths) - 1:
-                result_text += " │ "
-        result_text += "\n"
-
-    result_text += "```"
-    
-    # Add pagination controls
-    if total_pages > 1:
-        result_text += f"\n\n📄 **পৃষ্ঠা {page+1}/{total_pages}**\n"
-        result_text += f"💡 **নেভিগেশন:**\n"
-        if page > 0:
-            result_text += f"   • আগের পৃষ্ঠা: `/search_page {search_symbol} {page}`\n"
-        if page < total_pages - 1:
-            result_text += f"   • পরের পৃষ্ঠা: `/search_page {search_symbol} {page+2}`\n"
-        result_text += f"   • নির্দিষ্ট পৃষ্ঠা: `/search_page {search_symbol} [পৃষ্ঠা নম্বর]`"
-    
-    if status_msg:
-        await status_msg.edit_text(result_text, parse_mode='Markdown')
-    else:
-        await update.message.reply_text(result_text, parse_mode='Markdown')
+    await update.message.reply_text(f"⏳ '{symbol}' ডিলিট করা হচ্ছে...")
+    success, msg = hf_manager.delete_symbol_from_file(date, symbol)
+    await update.message.reply_text(msg)
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     dates = hf_manager.get_all_csv_files()
@@ -931,7 +808,6 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 📂 মোট CSV ফাইল: `{len(dates)}` টি
 📄 প্রতি পৃষ্ঠায়: ১৫টি রেকর্ড
-🔍 সার্চে প্রতি পৃষ্ঠায়: ১০টি রেজাল্ট
 """
 
     if dates:
@@ -943,7 +819,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
-    await update.message.reply_text("✅ অপারেশন বাতিল করা হয়েছে।")
+    await update.message.reply_text("✅ অপারেশন বাতিল করা হয়েছে。")
 
 # ==================== FLASK ROUTES ====================
 
@@ -976,24 +852,24 @@ async def run_bot():
     try:
         application = Application.builder().token(token).build()
 
+        # Command handlers
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("list", list_command))
-        application.add_handler(CommandHandler("list_page", list_page_command))
         application.add_handler(CommandHandler("clear", clear_command))
         application.add_handler(CommandHandler("yesclear", yesclear_command))
         application.add_handler(CommandHandler("files", files_command))
         application.add_handler(CommandHandler("view", view_command))
-        application.add_handler(CommandHandler("view_page", view_page_command))
         application.add_handler(CommandHandler("deletefile", deletefile_command))
         application.add_handler(CommandHandler("confirmdelete", confirmdelete_command))
-        application.add_handler(CommandHandler("symbols", symbols_command))
         application.add_handler(CommandHandler("deletesymbol", deletesymbol_command))
         application.add_handler(CommandHandler("search", search_command))
-        application.add_handler(CommandHandler("search_page", search_page_command))
         application.add_handler(CommandHandler("status", status_command))
         application.add_handler(CommandHandler("cancel", cancel_command))
+        
+        # Callback query handler for inline buttons
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        application.add_handler(CallbackQueryHandler(button_callback))
 
         print("🤖 Telegram Bot starting...")
         await application.initialize()
