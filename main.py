@@ -85,6 +85,8 @@ class HuggingFaceManager:
 
         try:
             files = list_repo_files(self.repo_id, token=self.token, repo_type=self.repo_type)
+            
+            # Check if file exists
             if filename not in files:
                 print(f"❌ File not found: {filename}")
                 return None
@@ -110,6 +112,8 @@ class HuggingFaceManager:
 
         except Exception as e:
             print(f"❌ Error reading file: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
     def save_csv_file(self, date, data):
@@ -219,16 +223,17 @@ class StockDataBot:
 
     def load_current_data(self):
         """আজকের ডাটা লোড করুন"""
+        print(f"📂 Loading data for {self.current_date}...")
         data = hf_manager.read_csv_file(self.current_date)
         if data:
             start_idx = 0
             if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
                 start_idx = 1
             self.current_data = data[start_idx:]
-            print(f"Loaded {len(self.current_data)} records for {self.current_date}")
+            print(f"✅ Loaded {len(self.current_data)} records for {self.current_date}")
         else:
             self.current_data = []
-            print(f"No data for {self.current_date}")
+            print(f"⚠️ No data for {self.current_date}")
 
     def parse_csv_line(self, line):
         """CSV লাইন পার্স করে 11টি কলামে রূপান্তর"""
@@ -289,30 +294,12 @@ class StockDataBot:
             return f"✅ {count} টি ডাটা মুছে ফেলা হয়েছে।"
         return f"⚠️ ডাটা ক্লিয়ার হয়েছে কিন্তু সেভ করতে পারেনি: {msg}"
 
-    def get_preview(self):
-        """আজকের ডাটার প্রিভিউ"""
-        if not self.current_data:
-            return f"📭 {self.current_date} তারিখের কোনো ডাটা নেই।"
-
-        preview = f"📊 **{self.current_date} - মোট {len(self.current_data)} টি রেকর্ড:**\n\n```\n"
-        preview += f"{'#':<4} {'সিম্বল':<12} {'এলিয়ট ওয়েব':<18} {'সাব-ওয়েব':<15}\n"
-        preview += "-" * 55 + "\n"
-
-        for i, row in enumerate(self.current_data):
-            symbol = row[0][:12] if len(row[0]) > 12 else row[0]
-            wave = row[1][:18] if len(row[1]) > 18 else row[1]
-            subwave = row[2][:15] if len(row[2]) > 15 else row[2]
-            preview += f"{i+1:<4} {symbol:<12} {wave:<18} {subwave:<15}\n"
-
-        preview += "```"
-        return preview
-
 bot = StockDataBot()
 
 # ==================== HELPER FUNCTIONS ====================
 
 def fix_date_format(date_str):
-    """তারিখ ফরম্যাট ঠিক করা"""
+    """তারিখ ফরম্যাট ঠিক করা: 25-3-2026 -> 25-03-2026"""
     date_str = date_str.strip()
     pattern = r'^(\d{1,2})-(\d{1,2})-(\d{4})$'
     match = re.match(pattern, date_str)
@@ -324,18 +311,15 @@ def fix_date_format(date_str):
     return date_str
 
 def format_as_table(data, title):
-    """ডাটাকে সুন্দর টেবিল আকারে ফরম্যাট করা - ইনসাইট কলাম শেষে"""
+    """ডাটাকে সুন্দর টেবিল আকারে ফরম্যাট করা"""
     if not data:
         return f"📭 {title} - কোনো ডাটা নেই।"
 
-    # Column headers in Bengali (insight at the end)
     headers = ["#", "সিম্বল", "এলিয়ট ওয়েব", "সাব-ওয়েব", "এন্ট্রি", "স্টপ", "TP1", "TP2", "TP3", "RRR", "স্কোর", "ইনসাইট"]
-    
-    # Column widths - insight column smaller in main table
     col_widths = [4, 12, 18, 15, 12, 8, 8, 8, 8, 6, 6, 25]
     
     table = f"📊 **{title} - মোট {len(data)} টি রেকর্ড:**\n\n"
-    table += f"💡 সম্পূর্ণ ইনসাইট দেখতে `/insight [সিম্বল]` ব্যবহার করুন\n\n```\n"
+    table += f"💡 সম্পূর্ণ ইনসাইট দেখতে `/insight [সিম্বল] [তারিখ]` ব্যবহার করুন\n\n```\n"
     
     header_line = ""
     for i, header in enumerate(headers):
@@ -368,17 +352,14 @@ def format_as_table(data, title):
 def format_files_table(dates):
     """ফাইলের তালিকা দেখান"""
     if not dates:
-        return "📭 কোনো CSV ফাইল নেই।"
-
-    serial_width = 6
-    name_width = 20
+        return "📭 কোনো CSV ফাইল নেই。"
 
     table = f"📁 **CSV ফাইলের তালিকা ({len(dates)} টি):**\n\n```\n"
-    table += f"{'ক্রম':<{serial_width}} {'ফাইলের নাম':<{name_width}} {'তারিখ':<12}\n"
-    table += "-" * (serial_width + name_width + 15) + "\n"
+    table += f"{'ক্রম':<6} {'ফাইলের নাম':<20} {'তারিখ':<12}\n"
+    table += "-" * 38 + "\n"
 
     for i, date in enumerate(dates):
-        table += f"{i+1:<{serial_width}} {date}.csv{' ':<{name_width-len(date)-4}} {date:<12}\n"
+        table += f"{i+1:<6} {date}.csv{' ':<{20-len(date)-4}} {date:<12}\n"
 
     table += "```"
     return table
@@ -386,7 +367,7 @@ def format_files_table(dates):
 def get_search_results_table(results, search_symbol):
     """সার্চ রেজাল্ট দেখান"""
     if not results:
-        return f"❌ '{search_symbol}' কোনো ফাইলে পাওয়া যায়নি।"
+        return f"❌ '{search_symbol}' কোনো ফাইলে পাওয়া যায়নি。"
 
     headers = ["#", "তারিখ", "সিম্বল", "এলিয়ট ওয়েব", "সাব-ওয়েব", "এন্ট্রি", "স্কোর"]
     col_widths = [4, 12, 12, 18, 15, 12, 6]
@@ -422,7 +403,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📚 **কমান্ড:**\n"
         "`/help` - সব কমান্ড দেখুন\n"
         "`/list` - আজকের ডাটা দেখুন\n"
-        "`/insight [সিম্বল]` - সম্পূর্ণ ইনসাইট দেখুন\n"
+        "`/insight [সিম্বল] [তারিখ]` - সম্পূর্ণ ইনসাইট দেখুন\n"
         "`/files` - সব CSV ফাইলের তালিকা\n"
         "`/view [তারিখ]` - ফাইল দেখুন\n"
         "`/symbols [তারিখ]` - ফাইলের সিম্বল দেখুন\n"
@@ -444,37 +425,28 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 `ADVENT,Impulse (Up),Wave 5 of 3,13.8-14.2,13.2,15.0,16.0,17.5,1:2.5,68,মূল্য 13.0 টাকার নিচে ব্রেক করতে পারেনি...`
 
 **কলামের ক্রম:**
-1. symbol
-2. এলিয়ট ওয়েব (বর্তমান অবস্থান)
-3. সাব-ওয়েব (বর্তমান অবস্থান)
-4. এন্ট্রি জোন (টাকা)
-5. স্টপ লস (টাকা)
-6. টেক প্রফিট ১ (টাকা)
-7. টেক প্রফিট ২ (টাকা)
-8. টেক প্রফিট ৩ (টাকা)
-9. রিস্ক-রিওয়ার্ড অনুপাত (RRR)
-10. স্কোর (১০০ এর মধ্যে)
-11. কুইক ইনসাইট
+1. symbol | 2. এলিয়ট ওয়েব | 3. সাব-ওয়েব | 4. এন্ট্রি | 5. স্টপ
+6. TP1 | 7. TP2 | 8. TP3 | 9. RRR | 10. স্কোর | 11. কুইক ইনসাইট
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔍 **ইনসাইট দেখার নিয়ম**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• `/insight ADVENT` - সম্পূর্ণ বিশ্লেষণ দেখাবে
+• `/insight ADVENT` - সর্বশেষ ফাইল থেকে দেখাবে
 • `/insight ADVENT 25-03-2026` - নির্দিষ্ট তারিখের ফাইল থেকে দেখাবে
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📁 **ফাইল ম্যানেজমেন্ট**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 • `/files` - সব CSV ফাইলের তালিকা
-• `/view 25-03-2026` - নির্দিষ্ট ফাইল দেখুন (ইনসাইট সংক্ষেপে)
+• `/view 25-03-2026` - ফাইল দেখুন
 • `/deletefile 25-03-2026` - ফাইল ডিলিট
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔍 **সিম্বল ম্যানেজমেন্ট**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• `/symbols 25-03-2026` - ফাইলের সিম্বল দেখুন
+• `/symbols 25-03-2026` - সিম্বল লিস্ট
 • `/deletesymbol 25-03-2026 ADVENT` - সিম্বল ডিলিট
-• `/search ADVENT` - সব ফাইলে সিম্বল খুঁজুন
+• `/search ADVENT` - সব ফাইলে খুঁজুন
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📊 **আজকের ডাটা**
@@ -493,14 +465,24 @@ Hugging Face: `ahashanahmed/csv/stock/`
 async def insight_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """নির্দিষ্ট সিম্বলের সম্পূর্ণ কুইক ইনসাইট দেখান"""
     if not context.args:
-        await update.message.reply_text("❌ সিম্বল দিন। উদাহরণ: `/insight ADVENT`")
+        await update.message.reply_text("❌ সিম্বল দিন। উদাহরণ: `/insight ADVENT` অথবা `/insight ADVENT 25-03-2026`")
         return
     
     symbol = context.args[0].upper()
-    date = context.args[1] if len(context.args) > 1 else bot.current_date
-    date = fix_date_format(date)
     
-    status_msg = await update.message.reply_text(f"⏳ '{symbol}' এর ইনসাইট খুঁজছি...")
+    # যদি তারিখ দেওয়া থাকে, তা ব্যবহার করুন
+    if len(context.args) > 1:
+        date = fix_date_format(context.args[1])
+    else:
+        # যদি তারিখ না দেওয়া থাকে, সর্বশেষ ফাইল খুঁজুন
+        files = hf_manager.get_all_csv_files()
+        if files:
+            date = files[0]  # সর্বশেষ ফাইল ব্যবহার করুন
+        else:
+            await update.message.reply_text("❌ কোনো CSV ফাইল নেই।")
+            return
+    
+    status_msg = await update.message.reply_text(f"⏳ '{symbol}' এর ইনসাইট খুঁজছি ({date})...")
     
     data = hf_manager.read_csv_file(date)
     
@@ -516,7 +498,6 @@ async def insight_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if row and len(row) > 0 and row[0].upper() == symbol:
             insight = row[10] if len(row) > 10 else "কোনো ইনসাইট নেই"
             
-            # Format TP values nicely
             tp1 = row[5] if len(row) > 5 else "-"
             tp2 = row[6] if len(row) > 6 else "-"
             tp3 = row[7] if len(row) > 7 else "-"
@@ -566,6 +547,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """আজকের ডাটা দেখান"""
     if not bot.current_data:
         await update.message.reply_text(f"📭 {bot.current_date} তারিখের কোনো ডাটা নেই।")
         return
@@ -592,6 +574,7 @@ async def yesclear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ আগে `/clear` দিন।", parse_mode='Markdown')
 
 async def files_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """সব CSV ফাইলের তালিকা দেখান"""
     dates = hf_manager.get_all_csv_files()
 
     if not dates:
@@ -602,49 +585,54 @@ async def files_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(table, parse_mode='Markdown')
 
 async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """নির্দিষ্ট তারিখের CSV ফাইল দেখান"""
     if not context.args:
         await update.message.reply_text("❌ তারিখ দিন। উদাহরণ: `/view 25-03-2026`")
         return
 
-    date = fix_date_format(context.args[0])
+    date_input = context.args[0].strip()
+    date = fix_date_format(date_input)
+    
     status_msg = await update.message.reply_text(f"⏳ `{date}.csv` ফাইল খুঁজছি...", parse_mode='Markdown')
 
-    data = hf_manager.read_csv_file(date)
-
-    if data is None:
-        dates = hf_manager.get_all_csv_files()
-        if dates:
-            file_list = "\n".join([f"• `{d}.csv`" for d in dates[:10]])
-            if len(dates) > 10:
-                file_list += f"\n• ... এবং {len(dates)-10} টি বেশি"
+    try:
+        data = hf_manager.read_csv_file(date)
+        
+        if data is None:
             await status_msg.edit_text(
                 f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।\n\n"
-                f"📁 **আপনার ফাইলগুলি:**\n{file_list}",
+                f"💡 `/files` দেখে উপলব্ধ ফাইল চেক করুন।",
                 parse_mode='Markdown'
             )
+            return
+        
+        if not data:
+            await status_msg.edit_text(f"📭 `{date}.csv` ফাইলটি খালি।", parse_mode='Markdown')
+            return
+        
+        start_idx = 0
+        if len(data) > 0 and len(data[0]) > 0 and data[0][0] == "symbol":
+            start_idx = 1
+        
+        actual_data = data[start_idx:]
+        
+        if not actual_data:
+            await status_msg.edit_text(f"📭 `{date}.csv` ফাইলে কোনো ডাটা নেই।", parse_mode='Markdown')
+            return
+        
+        table = format_as_table(actual_data, f"{date}.csv")
+        
+        if len(table) > 4000:
+            await status_msg.delete()
+            parts = [table[i:i+4000] for i in range(0, len(table), 4000)]
+            for part in parts:
+                await update.message.reply_text(part, parse_mode='Markdown')
         else:
-            await status_msg.edit_text(f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।", parse_mode='Markdown')
-        return
-
-    if not data:
-        await status_msg.edit_text(f"📭 `{date}.csv` ফাইলটি খালি।", parse_mode='Markdown')
-        return
-
-    start_idx = 0
-    if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
-        start_idx = 1
-
-    actual_data = data[start_idx:]
-
-    table = format_as_table(actual_data, f"{date}.csv")
-
-    if len(table) > 4000:
-        parts = [table[i:i+4000] for i in range(0, len(table), 4000)]
-        await status_msg.delete()
-        for part in parts:
-            await update.message.reply_text(part, parse_mode='Markdown')
-    else:
-        await status_msg.edit_text(table, parse_mode='Markdown')
+            await status_msg.edit_text(table, parse_mode='Markdown')
+            
+    except Exception as e:
+        print(f"❌ View command error: {e}")
+        await status_msg.edit_text(f"❌ ত্রুটি: {str(e)[:200]}")
 
 async def deletefile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
@@ -671,7 +659,12 @@ async def confirmdelete_command(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data['delete_file'] = None
 
 async def symbols_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    date = fix_date_format(context.args[0]) if context.args else bot.current_date
+    """ফাইলের সিম্বল লিস্ট দেখান"""
+    if context.args:
+        date = fix_date_format(context.args[0])
+    else:
+        date = bot.current_date
+    
     status_msg = await update.message.reply_text(f"⏳ `{date}.csv` ফাইল থেকে সিম্বল খুঁজছি...", parse_mode='Markdown')
 
     data = hf_manager.read_csv_file(date)
@@ -680,8 +673,6 @@ async def symbols_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         dates = hf_manager.get_all_csv_files()
         if dates:
             file_list = "\n".join([f"• `{d}.csv`" for d in dates[:10]])
-            if len(dates) > 10:
-                file_list += f"\n• ... এবং {len(dates)-10} টি বেশি"
             await status_msg.edit_text(
                 f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।\n\n"
                 f"📁 **আপনার ফাইলগুলি:**\n{file_list}",
@@ -713,7 +704,7 @@ async def symbols_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await status_msg.edit_text(
         f"📋 **{date}.csv - সিম্বল লিস্ট ({len(symbols)} টি):**\n\n{symbol_list}\n\n"
         f"💡 সিম্বল ডিলিট: `/deletesymbol {date} [সিম্বল]`\n"
-        f"💡 সম্পূর্ণ ইনসাইট: `/insight [সিম্বل]`",
+        f"💡 সম্পূর্ণ ইনসাইট: `/insight [সিম্বল] {date}`",
         parse_mode='Markdown'
     )
 
@@ -733,6 +724,7 @@ async def deletesymbol_command(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(msg)
 
 async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """সব ফাইলে সিম্বল খুঁজুন"""
     if not context.args:
         await update.message.reply_text("❌ সিম্বল দিন। উদাহরণ: `/search ADVENT`")
         return
@@ -788,6 +780,15 @@ async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text("✅ অপারেশন বাতিল করা হয়েছে।")
 
+async def reload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Hugging Face থেকে ডাটা রিলোড করুন"""
+    await update.message.reply_text("⏳ ডাটা রিলোড করা হচ্ছে...")
+    bot.load_current_data()
+    if bot.current_data:
+        await update.message.reply_text(f"✅ {len(bot.current_data)} টি রেকর্ড রিলোড হয়েছে।")
+    else:
+        await update.message.reply_text("❌ কোনো ডাটা রিলোড করতে পারেনি।")
+
 # ==================== FLASK ROUTES ====================
 
 @app.route('/')
@@ -824,7 +825,8 @@ async def run_bot():
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("list", list_command))
-        application.add_handler(CommandHandler("insight", insight_command))  # NEW COMMAND
+        application.add_handler(CommandHandler("insight", insight_command))
+        application.add_handler(CommandHandler("reload", reload_command))
         application.add_handler(CommandHandler("clear", clear_command))
         application.add_handler(CommandHandler("yesclear", yesclear_command))
         application.add_handler(CommandHandler("files", files_command))
