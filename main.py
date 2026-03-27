@@ -370,28 +370,54 @@ def get_score_text(score):
         return "⭐ সাধারণ"
 
 def format_as_table(data, title, offset=0, total_records=0, current_page=1, total_pages=1):
-    """সরল টেবিল ফরম্যাট - সব কলাম"""
+    """কার্ড ডিজাইন - প্রতিটি সিম্বলের জন্য বক্স"""
     if not data:
         return f"📭 {title} - কোনো ডাটা নেই।"
     
     result = f"📊 **{title}**  |  📋 {total_records} টি রেকর্ড  |  📄 পৃষ্ঠা {current_page}/{total_pages}\n\n"
     result += "```\n"
-    result += f"{'#':<4} {'সিম্বল':<12} {'এন্ট্রি':<12} {'স্টপ':<8} {'TP1':<8} {'TP2':<8} {'TP3':<8} {'RRR':<8} {'স্কোর':<6}\n"
-    result += "-" * 85 + "\n"
     
     for i, row in enumerate(data):
         serial = i + 1 + offset
-        symbol = row[0][:12] if len(row) > 0 else "-"
-        entry = row[3][:12] if len(row) > 3 else "-"
-        stop = row[4][:8] if len(row) > 4 else "-"
-        tp1 = row[5][:8] if len(row) > 5 else "-"
-        tp2 = row[6][:8] if len(row) > 6 else "-"
-        tp3 = row[7][:8] if len(row) > 7 else "-"
-        rrr = row[8][:8] if len(row) > 8 else "-"
-        score = row[9][:6] if len(row) > 9 else "-"
-        score_emoji = get_score_emoji(score)
         
-        result += f"{serial:<4} {symbol:<12} {entry:<12} {stop:<8} {tp1:<8} {tp2:<8} {tp3:<8} {rrr:<8} {score}{score_emoji:<4}\n"
+        score = row[9] if len(row) > 9 else "-"
+        score_emoji = get_score_emoji(score)
+        symbol_emoji = score_emoji
+        
+        wave = row[1] if len(row) > 1 else "-"
+        subwave = row[2] if len(row) > 2 else ""
+        if subwave and subwave != "-":
+            wave_text = f"{wave} → {subwave}"
+        else:
+            wave_text = wave
+        
+        entry = row[3] if len(row) > 3 else "-"
+        stop = row[4] if len(row) > 4 else "-"
+        tp1 = row[5] if len(row) > 5 else "-"
+        tp2 = row[6] if len(row) > 6 else "-"
+        tp3 = row[7] if len(row) > 7 else "-"
+        rrr = row[8] if len(row) > 8 else "-"
+        insight = row[10] if len(row) > 10 else "কোনো ইনসাইট নেই"
+        
+        result += f"╔══════════════════════════════════════════════════════════════════════════════╗\n"
+        result += f"║ #{serial} {row[0]} {symbol_emoji}\n"
+        result += f"╠══════════════════════════════════════════════════════════════════════════════╣\n"
+        result += f"║ 🌊 ওয়েভ    : {wave_text}\n"
+        result += f"║ 📈 এন্ট্রি  : {entry}  |  🛑 স্টপ: {stop}\n"
+        result += f"║ 🎯 টার্গেট  : {tp1} → {tp2} → {tp3}  |  📊 RRR: {rrr}\n"
+        result += f"║ 🏆 স্কোর    : {score}/100 {score_emoji}  |  {get_score_text(score)}\n"
+        
+        insight_lines = []
+        for j in range(0, len(insight), 70):
+            insight_lines.append(insight[j:j+70])
+        
+        for idx, line in enumerate(insight_lines):
+            if idx == 0:
+                result += f"║ 💡 ইনসাইট  : {line}\n"
+            else:
+                result += f"║              {line}\n"
+        
+        result += f"╚══════════════════════════════════════════════════════════════════════════════╝\n\n"
     
     result += "```"
     return result
@@ -455,7 +481,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/list` - আজকের ডাটা দেখুন\n"
         "`/insight [সিম্বল] [তারিখ]` - সম্পূর্ণ ইনসাইট দেখুন\n"
         "`/files` - সব CSV ফাইলের তালিকা\n"
-        "`/view [তারিখ]` - ফাইল দেখুন\n"
+        "`/view [তারিখ] [পৃষ্ঠা]` - কার্ড স্টাইলে ফাইল দেখুন\n"
         "`/symbols [তারিখ]` - ফাইলের সিম্বল দেখুন\n"
         "`/search [সিম্বল]` - সব ফাইলে সিম্বল খুঁজুন\n"
         "`/deletesymbol [তারিখ] [সিম্বল]` - সিম্বল ডিলিট\n"
@@ -492,7 +518,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📁 **ফাইল ম্যানেজমেন্ট**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 • `/files` - সব CSV ফাইলের তালিকা
-• `/view 25-03-2026` - সব ডাটা দেখাবে
+• `/view 25-03-2026` - প্রথম পৃষ্ঠা দেখাবে
+• `/view 25-03-2026 2` - দ্বিতীয় পৃষ্ঠা দেখাবে
 • `/deletefile 25-03-2026` - ফাইল ডিলিট
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -651,24 +678,36 @@ async def files_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(table, parse_mode='Markdown')
 
 async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """নির্দিষ্ট তারিখের CSV ফাইল দেখান"""
+    """নির্দিষ্ট তারিখের CSV ফাইল দেখান - কার্ড ডিজাইন + পেজিনেশন"""
     if not context.args:
         await update.message.reply_text(
-            "❌ 📅 তারিখ দিন। উদাহরণ: `/view 25-03-2026`",
+            "❌ 📅 তারিখ দিন। উদাহরণ: `/view 25-03-2026` অথবা `/view 25-03-2026 2`\n\n"
+            "📌 পৃষ্ঠা নম্বর না দিলে 1 নম্বর পৃষ্ঠা দেখাবে।",
             parse_mode='Markdown'
         )
         return
 
     date_input = context.args[0].strip()
     date = fix_date_format(date_input)
-    
-    status_msg = await update.message.reply_text(f"⏳ `{date}.csv` ফাইল খুঁজছি...", parse_mode='Markdown')
+
+    page = 1
+    if len(context.args) > 1:
+        try:
+            page = int(context.args[1])
+            if page < 1:
+                page = 1
+        except:
+            page = 1
+
+    items_per_page = 5
+
+    status_msg = await update.message.reply_text(f"⏳ 🔍 `{date}.csv` ফাইল খুঁজছি...", parse_mode='Markdown')
 
     try:
         data = hf_manager.read_csv_file(date)
 
         if data is None:
-            await status_msg.edit_text(f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।", parse_mode='Markdown')
+            await status_msg.edit_text(f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।\n\n💡 `/files` দেখে উপলব্ধ ফাইল চেক করুন।", parse_mode='Markdown')
             return
 
         if not data:
@@ -686,13 +725,81 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         total_records = len(all_data)
+        total_pages = (total_records + items_per_page - 1) // items_per_page
+
+        if page > total_pages:
+            page = total_pages
+
+        start = (page - 1) * items_per_page
+        end = start + items_per_page
+        page_data = all_data[start:end]
+
+        offset = start
         
-        table = format_as_table(all_data, f"{date}.csv", 0, total_records, 1, 1)
+        table = format_as_table(page_data, f"{date}.csv", offset, total_records, page, total_pages)
         
-        await status_msg.edit_text(table, parse_mode='Markdown')
+        nav_parts = []
+        
+        if page > 1:
+            nav_parts.append(f"[◀️](/view {date} {page-1})")
+        else:
+            nav_parts.append("◀️")
+        
+        if total_pages <= 7:
+            for p in range(1, total_pages + 1):
+                if p == page:
+                    nav_parts.append(f"**{p}**")
+                else:
+                    nav_parts.append(f"[{p}](/view {date} {p})")
+        else:
+            if page <= 4:
+                for p in range(1, 6):
+                    if p == page:
+                        nav_parts.append(f"**{p}**")
+                    else:
+                        nav_parts.append(f"[{p}](/view {date} {p})")
+                nav_parts.append("...")
+                nav_parts.append(f"[{total_pages}](/view {date} {total_pages})")
+            elif page >= total_pages - 3:
+                nav_parts.append(f"[1](/view {date} 1)")
+                nav_parts.append("...")
+                for p in range(total_pages - 4, total_pages + 1):
+                    if p == page:
+                        nav_parts.append(f"**{p}**")
+                    else:
+                        nav_parts.append(f"[{p}](/view {date} {p})")
+            else:
+                nav_parts.append(f"[1](/view {date} 1)")
+                nav_parts.append("...")
+                for p in range(page - 1, page + 2):
+                    if p == page:
+                        nav_parts.append(f"**{p}**")
+                    else:
+                        nav_parts.append(f"[{p}](/view {date} {p})")
+                nav_parts.append("...")
+                nav_parts.append(f"[{total_pages}](/view {date} {total_pages})")
+        
+        if page < total_pages:
+            nav_parts.append(f"[▶️](/view {date} {page+1})")
+        else:
+            nav_parts.append("▶️")
+        
+        nav_bar = " ".join(nav_parts)
+        
+        final_message = table + f"\n\n{nav_bar}"
+
+        if len(final_message) > 4000:
+            await status_msg.delete()
+            parts = [final_message[i:i+4000] for i in range(0, len(final_message), 4000)]
+            for part in parts:
+                await update.message.reply_text(part, parse_mode='Markdown')
+        else:
+            await status_msg.edit_text(final_message, parse_mode='Markdown')
 
     except Exception as e:
         print(f"❌ View command error: {e}")
+        import traceback
+        traceback.print_exc()
         await status_msg.edit_text(f"❌ ত্রুটি: {str(e)[:200]}")
 
 async def deletefile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
