@@ -613,19 +613,35 @@ async def files_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(table, parse_mode='Markdown')
 
 async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """নির্দিষ্ট তারিখের CSV ফাইল দেখান"""
+    """নির্দিষ্ট তারিখের CSV ফাইল দেখান - পেজিনেশন সহ"""
     if not context.args:
-        await update.message.reply_text("❌ তারিখ দিন। উদাহরণ: `/view 25-03-2026`")
+        await update.message.reply_text(
+            "❌ তারিখ দিন। উদাহরণ: `/view 25-03-2026` অথবা `/view 25-03-2026 2`\n\n"
+            "📌 পেজ নম্বর না দিলে 1 নম্বর পেজ দেখাবে।",
+            parse_mode='Markdown'
+        )
         return
 
     date_input = context.args[0].strip()
     date = fix_date_format(date_input)
     
+    # পেজ নম্বর (ডিফল্ট 1)
+    page = 1
+    if len(context.args) > 1:
+        try:
+            page = int(context.args[1])
+            if page < 1:
+                page = 1
+        except:
+            page = 1
+    
+    items_per_page = 10  # প্রতি পেজে 10টি রেকর্ড
+    
     status_msg = await update.message.reply_text(f"⏳ `{date}.csv` ফাইল খুঁজছি...", parse_mode='Markdown')
 
     try:
         data = hf_manager.read_csv_file(date)
-        
+
         if data is None:
             await status_msg.edit_text(
                 f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।\n\n"
@@ -633,31 +649,64 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode='Markdown'
             )
             return
-        
+
         if not data:
             await status_msg.edit_text(f"📭 `{date}.csv` ফাইলটি খালি।", parse_mode='Markdown')
             return
-        
+
         start_idx = 0
         if len(data) > 0 and len(data[0]) > 0 and data[0][0] == "symbol":
             start_idx = 1
+
+        all_data = data[start_idx:]
         
-        actual_data = data[start_idx:]
-        
-        if not actual_data:
+        if not all_data:
             await status_msg.edit_text(f"📭 `{date}.csv` ফাইলে কোনো ডাটা নেই।", parse_mode='Markdown')
             return
         
-        table = format_as_table(actual_data, f"{date}.csv")
+        total_records = len(all_data)
+        total_pages = (total_records + items_per_page - 1) // items_per_page
+        
+        # পেজ নম্বর ঠিক করুন
+        if page > total_pages:
+            page = total_pages
+        
+        # পেজ অনুযায়ী ডাটা স্লাইস
+        start = (page - 1) * items_per_page
+        end = start + items_per_page
+        page_data = all_data[start:end]
+        
+        # টেবিল তৈরি
+        table = format_as_table(page_data, f"{date}.csv")
+        
+        # পেজিনেশন তথ্য যোগ করুন
+        table += f"\n\n📄 **পৃষ্ঠা {page} / {total_pages}**  |  মোট {total_records} টি রেকর্ড\n\n"
+        
+        # নেভিগেশন বাটন (টেক্সট আকারে)
+        nav_buttons = []
+        if page > 1:
+            nav_buttons.append(f"◀️ আগের পৃষ্ঠা: `/view {date} {page-1}`")
+        if page < total_pages:
+            nav_buttons.append(f"পরবর্তী পৃষ্ঠা ▶️: `/view {date} {page+1}`")
+        
+        if nav_buttons:
+            table += " | ".join(nav_buttons)
+        
+        # প্রথম পেজে হলে মোট পৃষ্ঠার তথ্য দেখান
+        if page == 1 and total_pages > 1:
+            table += f"\n\n💡 সব ডাটা দেখতে: `/view {date} 1` থেকে `/view {date} {total_pages}` পর্যন্ত ব্যবহার করুন"
         
         if len(table) > 4000:
             await status_msg.delete()
             parts = [table[i:i+4000] for i in range(0, len(table), 4000)]
-            for part in parts:
-                await update.message.reply_text(part, parse_mode='Markdown')
+            for i, part in enumerate(parts):
+                if i == 0:
+                    await update.message.reply_text(part, parse_mode='Markdown')
+                else:
+                    await update.message.reply_text(part, parse_mode='Markdown')
         else:
             await status_msg.edit_text(table, parse_mode='Markdown')
-            
+
     except Exception as e:
         print(f"❌ View command error: {e}")
         await status_msg.edit_text(f"❌ ত্রুটি: {str(e)[:200]}")
