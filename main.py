@@ -75,23 +75,24 @@ class HuggingFaceManager:
             return []
 
     def read_csv_file(self, date):
-        """নির্দিষ্ট তারিখের CSV ফাইল পড়ুন - ফিক্সড পাথ চেক"""
+        """নির্দিষ্ট তারিখের CSV ফাইল পড়ুন - ফিক্সড ভার্সন"""
         if not self.token:
             print("❌ No HF_TOKEN!")
             return None
 
-        possible_paths = [
-            f"{self.folder}/{date}.csv",   # stock/25-03-2026.csv
-            f"{date}.csv",                 # 25-03-2026.csv
-            f"{self.folder}/{date}.CSV",
-            f"{date}.CSV"
-        ]
-
         print(f"🔍 Looking for {date}.csv in repo...")
+
         try:
             all_files = list_repo_files(self.repo_id, token=self.token, repo_type=self.repo_type)
-            print(f"📁 Found {len(all_files)} files total. Checking paths...")
+            print(f"📁 Total files: {len(all_files)}")
             
+            possible_paths = [
+                f"{self.folder}/{date}.csv",
+                f"{date}.csv",
+                f"{self.folder}/{date}.CSV",
+                f"{date}.CSV"
+            ]
+
             found_path = None
             for path in possible_paths:
                 if path in all_files:
@@ -100,9 +101,11 @@ class HuggingFaceManager:
                     break
             
             if not found_path:
-                print(f"❌ File not found. Available stock files: {[f for f in all_files if 'stock' in f]}")
+                stock_files = [f for f in all_files if f.endswith('.csv')]
+                print(f"❌ File not found. Available CSV files: {stock_files[:10]}")
                 return None
 
+            print(f"📥 Downloading: {found_path}")
             temp_file = hf_hub_download(
                 repo_id=self.repo_id,
                 filename=found_path,
@@ -116,7 +119,11 @@ class HuggingFaceManager:
                 reader = csv.reader(f)
                 data = list(reader)
 
-            os.remove(temp_file)
+            try:
+                os.remove(temp_file)
+            except:
+                pass
+
             print(f"✅ Loaded {len(data)} records from {found_path}")
             return data
 
@@ -224,6 +231,7 @@ class HuggingFaceManager:
         return results
 
 hf_manager = HuggingFaceManager()
+
 class StockDataBot:
     def __init__(self):
         self.current_data = []
@@ -372,12 +380,10 @@ def format_as_table(data, title, offset=0, total_records=0, current_page=1, tota
     for i, row in enumerate(data):
         serial = i + 1 + offset
         
-        # স্কোর
         score = row[9] if len(row) > 9 else "-"
         score_emoji = get_score_emoji(score)
         symbol_emoji = score_emoji
         
-        # এলিয়ট ওয়েব + সাব-ওয়েব একত্রে
         wave = row[1] if len(row) > 1 else "-"
         subwave = row[2] if len(row) > 2 else ""
         if subwave and subwave != "-":
@@ -385,24 +391,14 @@ def format_as_table(data, title, offset=0, total_records=0, current_page=1, tota
         else:
             wave_text = wave
         
-        # এন্ট্রি
         entry = row[3] if len(row) > 3 else "-"
-        
-        # স্টপ লস
         stop = row[4] if len(row) > 4 else "-"
-        
-        # TP1, TP2, TP3
         tp1 = row[5] if len(row) > 5 else "-"
         tp2 = row[6] if len(row) > 6 else "-"
         tp3 = row[7] if len(row) > 7 else "-"
-        
-        # RRR
         rrr = row[8] if len(row) > 8 else "-"
-        
-        # ইনসাইট
         insight = row[10] if len(row) > 10 else "কোনো ইনসাইট নেই"
         
-        # কার্ড তৈরি
         result += f"╔══════════════════════════════════════════════════════════════════════════════╗\n"
         result += f"║ #{serial} {row[0]} {symbol_emoji}\n"
         result += f"╠══════════════════════════════════════════════════════════════════════════════╣\n"
@@ -411,7 +407,6 @@ def format_as_table(data, title, offset=0, total_records=0, current_page=1, tota
         result += f"║ 🎯 টার্গেট  : {tp1} → {tp2} → {tp3}  |  📊 RRR: {rrr}\n"
         result += f"║ 🏆 স্কোর    : {score}/100 {score_emoji}  |  {get_score_text(score)}\n"
         
-        # ইনসাইটের জন্য লাইন ভাগ
         insight_lines = []
         for j in range(0, len(insight), 70):
             insight_lines.append(insight[j:j+70])
@@ -466,7 +461,6 @@ def get_search_results_table(results, search_symbol):
         line += f"{r['row'][2][:col_widths[4]]:<{col_widths[4]}}" if len(r['row']) > 2 else f"{'':<{col_widths[4]}}"
         line += f"{r['row'][3][:col_widths[5]]:<{col_widths[5]}}" if len(r['row']) > 3 else f"{'':<{col_widths[5]}}"
         
-        # স্কোর ইমোজি যোগ করুন
         score = r['row'][9] if len(r['row']) > 9 else "-"
         score_emoji = get_score_emoji(score)
         line += f"{score}/100 {score_emoji}"
@@ -732,7 +726,6 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         total_records = len(all_data)
         
-        # যদি পৃষ্ঠা নম্বর না দেওয়া থাকে, সব ডাটা একসাথে দেখান
         if page is None:
             table = format_as_table(all_data, f"{date}.csv", 0, total_records, 1, 1)
             final_message = table
@@ -746,7 +739,6 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await status_msg.edit_text(final_message, parse_mode='Markdown')
             return
         
-        # পেজিনেশন সহ দেখান
         total_pages = (total_records + items_per_page - 1) // items_per_page
 
         if page > total_pages:
@@ -758,19 +750,15 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         offset = start
         
-        # টেবিল তৈরি
         table = format_as_table(page_data, f"{date}.csv", offset, total_records, page, total_pages)
         
-        # মাঝারি নেভিগেশন তৈরি
         nav_parts = []
         
-        # আগের পৃষ্ঠা
         if page > 1:
             nav_parts.append(f"[◀️](/view {date} {page-1})")
         else:
             nav_parts.append("◀️")
         
-        # পৃষ্ঠা সংখ্যা (সংক্ষেপে)
         if total_pages <= 7:
             for p in range(1, total_pages + 1):
                 if p == page:
@@ -805,7 +793,6 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 nav_parts.append("...")
                 nav_parts.append(f"[{total_pages}](/view {date} {total_pages})")
         
-        # পরবর্তী পৃষ্ঠা
         if page < total_pages:
             nav_parts.append(f"[▶️](/view {date} {page+1})")
         else:
