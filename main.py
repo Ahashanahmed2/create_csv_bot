@@ -311,29 +311,69 @@ def fix_date_format(date_str):
     return date_str
 
 def format_as_table(data, title):
-    """সরল টেবিল ফরম্যাট - টেস্টের জন্য"""
+    """সম্পূর্ণ 11 কলাম - ইনসাইট সম্পূর্ণ দেখাবে"""
     if not data:
         return f"📭 {title} - কোনো ডাটা নেই।"
     
+    # 11টি কলামের হেডার
+    headers = ["#", "সিম্বল", "এলিয়ট ওয়েব", "সাব-ওয়েব", "এন্ট্রি", "স্টপ", "TP1", "TP2", "TP3", "RRR", "স্কোর", "ইনসাইট"]
+    
+    # ইনসাইট কলামের প্রস্থ বড় রাখা হয়েছে
+    col_widths = [4, 12, 20, 18, 12, 8, 8, 8, 8, 8, 6, 200]
+    
     result = f"📊 **{title} - মোট {len(data)} টি রেকর্ড:**\n\n"
+    result += f"💡 সম্পূর্ণ ইনসাইট দেখতে `/insight [সিম্বল] {title[:10]}` ব্যবহার করুন\n\n"
     result += "```\n"
-    result += f"{'ক্রম':<4} {'সিম্বল':<12} {'এন্ট্রি':<12} {'স্টপ':<8} {'TP1':<8} {'TP2':<8} {'TP3':<8} {'RRR':<8} {'স্কোর':<6}\n"
-    result += "-" * 80 + "\n"
     
+    # হেডার
+    header_line = ""
+    for i, header in enumerate(headers):
+        header_line += f"{header:<{col_widths[i]}}"
+    result += header_line + "\n"
+    
+    # সেপারেটর
+    separator = ""
+    for width in col_widths:
+        separator += "-" * width
+    result += separator + "\n"
+    
+    # ডাটা
     for i, row in enumerate(data):
-        symbol = row[0][:12] if len(row) > 0 else "-"
-        entry = row[3][:12] if len(row) > 3 else "-"
-        stop = row[4][:8] if len(row) > 4 else "-"
-        tp1 = row[5][:8] if len(row) > 5 else "-"
-        tp2 = row[6][:8] if len(row) > 6 else "-"
-        tp3 = row[7][:8] if len(row) > 7 else "-"
-        rrr = row[8][:8] if len(row) > 8 else "-"
-        score = row[9][:6] if len(row) > 9 else "-"
+        line = f"{i+1:<{col_widths[0]}}"
         
-        result += f"{i+1:<4} {symbol:<12} {entry:<12} {stop:<8} {tp1:<8} {tp2:<8} {tp3:<8} {rrr:<8} {score:<6}\n"
+        line += f"{row[0][:col_widths[1]]:<{col_widths[1]}}" if len(row) > 0 else f"{'-':<{col_widths[1]}}"
+        line += f"{row[1][:col_widths[2]]:<{col_widths[2]}}" if len(row) > 1 else f"{'-':<{col_widths[2]}}"
+        line += f"{row[2][:col_widths[3]]:<{col_widths[3]}}" if len(row) > 2 else f"{'-':<{col_widths[3]}}"
+        line += f"{row[3][:col_widths[4]]:<{col_widths[4]}}" if len(row) > 3 else f"{'-':<{col_widths[4]}}"
+        line += f"{row[4][:col_widths[5]]:<{col_widths[5]}}" if len(row) > 4 else f"{'-':<{col_widths[5]}}"
+        line += f"{row[5][:col_widths[6]]:<{col_widths[6]}}" if len(row) > 5 else f"{'-':<{col_widths[6]}}"
+        line += f"{row[6][:col_widths[7]]:<{col_widths[7]}}" if len(row) > 6 else f"{'-':<{col_widths[7]}}"
+        line += f"{row[7][:col_widths[8]]:<{col_widths[8]}}" if len(row) > 7 else f"{'-':<{col_widths[8]}}"
+        line += f"{row[8][:col_widths[9]]:<{col_widths[9]}}" if len(row) > 8 else f"{'-':<{col_widths[9]}}"
+        line += f"{row[9][:col_widths[10]]:<{col_widths[10]}}" if len(row) > 9 else f"{'-':<{col_widths[10]}}"
+        
+        # ইনসাইট সম্পূর্ণ দেখানো হবে (কাটা হবে না)
+        if len(row) > 10:
+            insight_text = row[10]
+            # শুধুমাত্র যদি টেলিগ্রাম লিমিটের জন্য খুব বড় হয় তবে কাটা হবে
+            if len(insight_text) > col_widths[11]:
+                insight = insight_text[:col_widths[11]-3] + "..."
+            else:
+                insight = insight_text
+        else:
+            insight = "-"
+        line += f"{insight:<{col_widths[11]}}"
+        
+        result += line + "\n"
+        
+        if (i + 1) % 10 == 0 and i + 1 < len(data):
+            result += separator + "\n"
     
-    result += "```\n"
-    result += f"\n💡 সম্পূর্ণ ইনসাইট দেখতে `/insight [সিম্বল] {title[:10]}` ব্যবহার করুন"
+    result += "```"
+    
+    # যদি মেসেজ খুব বড় হয়, তাহলে সতর্কতা যোগ করুন
+    if len(result) > 4000:
+        result = result[:3900] + "\n\n⚠️ মেসেজ বড় হওয়ায় কিছু ডাটা কাটা হয়েছে। সম্পূর্ণ দেখতে `/insight [সিম্বল]` ব্যবহার করুন।```"
     
     return result
 
