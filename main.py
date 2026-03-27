@@ -315,7 +315,7 @@ def format_as_table(data, title, offset=0):
         return f"📭 {title} - কোনো ডাটা নেই।"
 
     headers = ["#", "সিম্বল", "এলিয়ট ওয়েব", "সাব-ওয়েব", "এন্ট্রি", "স্টপ", "TP1", "TP2", "TP3", "RRR", "স্কোর", "ইনসাইট"]
-    col_widths = [4, 12, 20, 18, 12, 8, 8, 8, 8, 8, 6, 40]
+    col_widths = [4, 12, 20, 18, 12, 8, 8, 8, 8, 8, 6, 200]
 
     result = f"📊 **{title}**\n\n```\n"
 
