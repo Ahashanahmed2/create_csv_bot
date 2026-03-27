@@ -310,36 +310,32 @@ def fix_date_format(date_str):
         return f"{day}-{month}-{year}"
     return date_str
 
-def format_as_table(data, title):
-    """সম্পূর্ণ 11 কলাম - ইনসাইট সম্পূর্ণ দেখাবে"""
+def format_as_table(data, title, offset=0):
+    """সম্পূর্ণ 11 কলাম - অফসেট সহ সিরিয়াল নম্বর"""
     if not data:
-        return f"📭 {title} - কোনো ডাটা নেই।"
-    
-    # 11টি কলামের হেডার
+        return f"📭 {title} - কোনো ডাটা নেই。"
+
     headers = ["#", "সিম্বল", "এলিয়ট ওয়েব", "সাব-ওয়েব", "এন্ট্রি", "স্টপ", "TP1", "TP2", "TP3", "RRR", "স্কোর", "ইনসাইট"]
-    
-    # ইনসাইট কলামের প্রস্থ বড় রাখা হয়েছে
-    col_widths = [4, 12, 20, 18, 12, 8, 8, 8, 8, 8, 6, 200]
-    
-    result = f"📊 **{title} - মোট {len(data)} টি রেকর্ড:**\n\n"
-    result += f"💡 সম্পূর্ণ ইনসাইট দেখতে `/insight [সিম্বল] {title[:10]}` ব্যবহার করুন\n\n"
-    result += "```\n"
-    
+    col_widths = [4, 12, 20, 18, 12, 8, 8, 8, 8, 8, 6, 40]
+
+    result = f"📊 **{title}**\n\n```\n"
+
     # হেডার
     header_line = ""
     for i, header in enumerate(headers):
         header_line += f"{header:<{col_widths[i]}}"
     result += header_line + "\n"
-    
+
     # সেপারেটর
     separator = ""
     for width in col_widths:
         separator += "-" * width
     result += separator + "\n"
-    
-    # ডাটা
+
+    # ডাটা (অফসেট সহ সিরিয়াল নম্বর)
     for i, row in enumerate(data):
-        line = f"{i+1:<{col_widths[0]}}"
+        serial = i + 1 + offset  # অফসেট যোগ করা হয়েছে
+        line = f"{serial:<{col_widths[0]}}"
         
         line += f"{row[0][:col_widths[1]]:<{col_widths[1]}}" if len(row) > 0 else f"{'-':<{col_widths[1]}}"
         line += f"{row[1][:col_widths[2]]:<{col_widths[2]}}" if len(row) > 1 else f"{'-':<{col_widths[2]}}"
@@ -352,10 +348,8 @@ def format_as_table(data, title):
         line += f"{row[8][:col_widths[9]]:<{col_widths[9]}}" if len(row) > 8 else f"{'-':<{col_widths[9]}}"
         line += f"{row[9][:col_widths[10]]:<{col_widths[10]}}" if len(row) > 9 else f"{'-':<{col_widths[10]}}"
         
-        # ইনসাইট সম্পূর্ণ দেখানো হবে (কাটা হবে না)
         if len(row) > 10:
             insight_text = row[10]
-            # শুধুমাত্র যদি টেলিগ্রাম লিমিটের জন্য খুব বড় হয় তবে কাটা হবে
             if len(insight_text) > col_widths[11]:
                 insight = insight_text[:col_widths[11]-3] + "..."
             else:
@@ -365,16 +359,8 @@ def format_as_table(data, title):
         line += f"{insight:<{col_widths[11]}}"
         
         result += line + "\n"
-        
-        if (i + 1) % 10 == 0 and i + 1 < len(data):
-            result += separator + "\n"
-    
+
     result += "```"
-    
-    # যদি মেসেজ খুব বড় হয়, তাহলে সতর্কতা যোগ করুন
-    if len(result) > 4000:
-        result = result[:3900] + "\n\n⚠️ মেসেজ বড় হওয়ায় কিছু ডাটা কাটা হয়েছে। সম্পূর্ণ দেখতে `/insight [সিম্বল]` ব্যবহার করুন।```"
-    
     return result
 
 def format_files_table(dates):
@@ -670,19 +656,25 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # পেজ নম্বর ঠিক করুন
         if page > total_pages:
             page = total_pages
+        if page < 1:
+            page = 1
         
         # পেজ অনুযায়ী ডাটা স্লাইস
         start = (page - 1) * items_per_page
         end = start + items_per_page
         page_data = all_data[start:end]
         
-        # টেবিল তৈরি
-        table = format_as_table(page_data, f"{date}.csv")
+        # অফসেট হিসাব করুন (সিরিয়াল নম্বরের জন্য)
+        offset = start  # অফসেট = আগের পৃষ্ঠায় কতগুলো রেকর্ড ছিল
+        
+        # টেবিল তৈরি (অফসেট সহ)
+        title_with_page = f"{date}.csv (পৃষ্ঠা {page}/{total_pages})"
+        table = format_as_table(page_data, title_with_page, offset)
         
         # পেজিনেশন তথ্য যোগ করুন
-        table += f"\n\n📄 **পৃষ্ঠা {page} / {total_pages}**  |  মোট {total_records} টি রেকর্ড\n\n"
+        pagination_info = f"\n\n📄 **পৃষ্ঠা {page} / {total_pages}**  |  মোট {total_records} টি রেকর্ড\n\n"
         
-        # নেভিগেশন বাটন (টেক্সট আকারে)
+        # নেভিগেশন বাটন
         nav_buttons = []
         if page > 1:
             nav_buttons.append(f"◀️ আগের পৃষ্ঠা: `/view {date} {page-1}`")
@@ -690,40 +682,28 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             nav_buttons.append(f"পরবর্তী পৃষ্ঠা ▶️: `/view {date} {page+1}`")
         
         if nav_buttons:
-            table += " | ".join(nav_buttons)
+            pagination_info += " | ".join(nav_buttons)
         
-        # প্রথম পেজে হলে মোট পৃষ্ঠার তথ্য দেখান
+        # প্রথম পেজে হলে টিপ যোগ করুন
         if page == 1 and total_pages > 1:
-            table += f"\n\n💡 সব ডাটা দেখতে: `/view {date} 1` থেকে `/view {date} {total_pages}` পর্যন্ত ব্যবহার করুন"
+            pagination_info += f"\n\n💡 সব পৃষ্ঠা দেখতে: `/view {date} 1` থেকে `/view {date} {total_pages}` পর্যন্ত ব্যবহার করুন"
         
-        if len(table) > 4000:
+        # টেবিলের সাথে পেজিনেশন যোগ করুন
+        final_message = table + pagination_info
+        
+        if len(final_message) > 4000:
             await status_msg.delete()
-            parts = [table[i:i+4000] for i in range(0, len(table), 4000)]
-            for i, part in enumerate(parts):
-                if i == 0:
-                    await update.message.reply_text(part, parse_mode='Markdown')
-                else:
-                    await update.message.reply_text(part, parse_mode='Markdown')
+            parts = [final_message[i:i+4000] for i in range(0, len(final_message), 4000)]
+            for part in parts:
+                await update.message.reply_text(part, parse_mode='Markdown')
         else:
-            await status_msg.edit_text(table, parse_mode='Markdown')
+            await status_msg.edit_text(final_message, parse_mode='Markdown')
 
     except Exception as e:
         print(f"❌ View command error: {e}")
+        import traceback
+        traceback.print_exc()
         await status_msg.edit_text(f"❌ ত্রুটি: {str(e)[:200]}")
-
-async def deletefile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("❌ তারিখ দিন। উদাহরণ: `/deletefile 25-03-2026`")
-        return
-
-    date = fix_date_format(context.args[0])
-    context.user_data['delete_file'] = date
-    await update.message.reply_text(
-        f"⚠️ আপনি কি নিশ্চিত? `{date}.csv` ফাইলটি স্থায়ীভাবে মুছে যাবে!\n\n"
-        f"✅ হ্যাঁ হলে: `/confirmdelete`\n"
-        f"❌ না হলে: `/cancel`",
-        parse_mode='Markdown'
-    )
 
 async def confirmdelete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     date = context.user_data.get('delete_file')
