@@ -309,53 +309,111 @@ def fix_date_format(date_str):
         return f"{day}-{month}-{year}"
     return date_str
 
-def format_as_table(data, title, offset=0):
-    """সম্পূর্ণ 11 কলাম - অফসেট সহ সিরিয়াল নম্বর"""
+def get_score_emoji(score):
+    """স্কোর অনুযায়ী ইমোজি রিটার্ন করুন"""
+    try:
+        score_num = int(score)
+        if score_num >= 85:
+            return "💎"
+        elif score_num >= 80:
+            return "🔥"
+        elif score_num >= 70:
+            return "⭐"
+        elif score_num >= 60:
+            return "✅"
+        elif score_num >= 50:
+            return "📈"
+        elif score_num >= 40:
+            return "⚠️"
+        else:
+            return "❌"
+    except:
+        return "⭐"
+
+def get_score_text(score):
+    """স্কোর অনুযায়ী টেক্সট রিটার্ন করুন"""
+    try:
+        score_num = int(score)
+        if score_num >= 85:
+            return "💎 এক্সট্রিম শক্তিশালী"
+        elif score_num >= 80:
+            return "🔥 খুব শক্তিশালী"
+        elif score_num >= 70:
+            return "⭐ শক্তিশালী"
+        elif score_num >= 60:
+            return "✅ ভাল"
+        elif score_num >= 50:
+            return "📈 মধ্যম"
+        elif score_num >= 40:
+            return "⚠️ দুর্বল"
+        else:
+            return "❌ খুব দুর্বল"
+    except:
+        return "⭐ সাধারণ"
+
+def format_as_table(data, title, offset=0, total_records=0, current_page=1, total_pages=1):
+    """আধুনিক কার্ড ডিজাইন - স্কোর ইমোজি সহ"""
     if not data:
         return f"📭 {title} - কোনো ডাটা নেই।"
-
-    headers = ["#", "সিম্বল", "এলিয়ট ওয়েব", "সাব-ওয়েব", "এন্ট্রি", "স্টপ", "TP1", "TP2", "TP3", "RRR", "স্কোর", "ইনসাইট"]
-    col_widths = [4, 12, 20, 18, 12, 8, 8, 8, 8, 8, 6, 200]
-
-    result = f"📊 **{title}**\n\n```\n"
-
-    header_line = ""
-    for i, header in enumerate(headers):
-        header_line += f"{header:<{col_widths[i]}}"
-    result += header_line + "\n"
-
-    separator = ""
-    for width in col_widths:
-        separator += "-" * width
-    result += separator + "\n"
-
+    
+    result = f"📊 **{title}**  |  📋 {total_records} টি রেকর্ড  |  📄 পৃষ্ঠা {current_page}/{total_pages}\n\n"
+    result += "```\n"
+    
     for i, row in enumerate(data):
         serial = i + 1 + offset
-        line = f"{serial:<{col_widths[0]}}"
-
-        line += f"{row[0][:col_widths[1]]:<{col_widths[1]}}" if len(row) > 0 else f"{'-':<{col_widths[1]}}"
-        line += f"{row[1][:col_widths[2]]:<{col_widths[2]}}" if len(row) > 1 else f"{'-':<{col_widths[2]}}"
-        line += f"{row[2][:col_widths[3]]:<{col_widths[3]}}" if len(row) > 2 else f"{'-':<{col_widths[3]}}"
-        line += f"{row[3][:col_widths[4]]:<{col_widths[4]}}" if len(row) > 3 else f"{'-':<{col_widths[4]}}"
-        line += f"{row[4][:col_widths[5]]:<{col_widths[5]}}" if len(row) > 4 else f"{'-':<{col_widths[5]}}"
-        line += f"{row[5][:col_widths[6]]:<{col_widths[6]}}" if len(row) > 5 else f"{'-':<{col_widths[6]}}"
-        line += f"{row[6][:col_widths[7]]:<{col_widths[7]}}" if len(row) > 6 else f"{'-':<{col_widths[7]}}"
-        line += f"{row[7][:col_widths[8]]:<{col_widths[8]}}" if len(row) > 7 else f"{'-':<{col_widths[8]}}"
-        line += f"{row[8][:col_widths[9]]:<{col_widths[9]}}" if len(row) > 8 else f"{'-':<{col_widths[9]}}"
-        line += f"{row[9][:col_widths[10]]:<{col_widths[10]}}" if len(row) > 9 else f"{'-':<{col_widths[10]}}"
-
-        if len(row) > 10:
-            insight_text = row[10]
-            if len(insight_text) > col_widths[11]:
-                insight = insight_text[:col_widths[11]-3] + "..."
-            else:
-                insight = insight_text
+        
+        # স্কোর
+        score = row[9] if len(row) > 9 else "-"
+        score_emoji = get_score_emoji(score)
+        symbol_emoji = score_emoji
+        
+        # এলিয়ট ওয়েব + সাব-ওয়েব একত্রে
+        wave = row[1] if len(row) > 1 else "-"
+        subwave = row[2] if len(row) > 2 else ""
+        if subwave and subwave != "-":
+            wave_text = f"{wave} → {subwave}"
         else:
-            insight = "-"
-        line += f"{insight:<{col_widths[11]}}"
-
-        result += line + "\n"
-
+            wave_text = wave
+        
+        # এন্ট্রি
+        entry = row[3] if len(row) > 3 else "-"
+        
+        # স্টপ লস
+        stop = row[4] if len(row) > 4 else "-"
+        
+        # TP1, TP2, TP3
+        tp1 = row[5] if len(row) > 5 else "-"
+        tp2 = row[6] if len(row) > 6 else "-"
+        tp3 = row[7] if len(row) > 7 else "-"
+        
+        # RRR
+        rrr = row[8] if len(row) > 8 else "-"
+        
+        # ইনসাইট
+        insight = row[10] if len(row) > 10 else "কোনো ইনসাইট নেই"
+        
+        # কার্ড তৈরি
+        result += f"╔══════════════════════════════════════════════════════════════════════════════╗\n"
+        result += f"║ #{serial} {row[0]} {symbol_emoji}\n"
+        result += f"╠══════════════════════════════════════════════════════════════════════════════╣\n"
+        result += f"║ 🌊 ওয়েভ    : {wave_text}\n"
+        result += f"║ 📈 এন্ট্রি  : {entry}  |  🛑 স্টপ: {stop}\n"
+        result += f"║ 🎯 টার্গেট  : {tp1} → {tp2} → {tp3}  |  📊 RRR: {rrr}\n"
+        result += f"║ 🏆 স্কোর    : {score}/100 {score_emoji}  |  {get_score_text(score)}\n"
+        
+        # ইনসাইটের জন্য লাইন ভাগ
+        insight_lines = []
+        for j in range(0, len(insight), 70):
+            insight_lines.append(insight[j:j+70])
+        
+        for idx, line in enumerate(insight_lines):
+            if idx == 0:
+                result += f"║ 💡 ইনসাইট  : {line}\n"
+            else:
+                result += f"║              {line}\n"
+        
+        result += f"╚══════════════════════════════════════════════════════════════════════════════╝\n\n"
+    
     result += "```"
     return result
 
@@ -397,7 +455,11 @@ def get_search_results_table(results, search_symbol):
         line += f"{r['row'][1][:col_widths[3]]:<{col_widths[3]}}" if len(r['row']) > 1 else f"{'':<{col_widths[3]}}"
         line += f"{r['row'][2][:col_widths[4]]:<{col_widths[4]}}" if len(r['row']) > 2 else f"{'':<{col_widths[4]}}"
         line += f"{r['row'][3][:col_widths[5]]:<{col_widths[5]}}" if len(r['row']) > 3 else f"{'':<{col_widths[5]}}"
-        line += f"{r['row'][9][:col_widths[6]]:<{col_widths[6]}}" if len(r['row']) > 9 else f"{'':<{col_widths[6]}}"
+        
+        # স্কোর ইমোজি যোগ করুন
+        score = r['row'][9] if len(r['row']) > 9 else "-"
+        score_emoji = get_score_emoji(score)
+        line += f"{score}/100 {score_emoji}"
         table += line + "\n"
 
     table += "```"
@@ -415,14 +477,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/list` - আজকের ডাটা দেখুন\n"
         "`/insight [সিম্বল] [তারিখ]` - সম্পূর্ণ ইনসাইট দেখুন\n"
         "`/files` - সব CSV ফাইলের তালিকা\n"
-        "`/view [তারিখ] [পৃষ্ঠা]` - ফাইল দেখুন\n"
+        "`/view [তারিখ] [পৃষ্ঠা]` - ফাইল দেখুন (পৃষ্ঠা নম্বর না দিলে সব দেখাবে)\n"
         "`/symbols [তারিখ]` - ফাইলের সিম্বল দেখুন\n"
         "`/search [সিম্বল]` - সব ফাইলে সিম্বল খুঁজুন\n"
         "`/deletesymbol [তারিখ] [সিম্বল]` - সিম্বল ডিলিট\n"
         "`/deletefile [তারিখ]` - ফাইল ডিলিট\n"
         "`/clear` - আজকের ডাটা ক্লিয়ার\n"
         "`/status` - স্ট্যাটাস দেখুন\n"
-        "`/reload` - ডাটা রিলোড করুন",
+        "`/reload` - ডাটা রিলোড করুন\n\n"
+        "📊 **স্কোর রেটিং:**\n"
+        "💎 85+ এক্সট্রিম | 🔥 80-84 খুব শক্তিশালী | ⭐ 70-79 শক্তিশালী\n"
+        "✅ 60-69 ভাল | 📈 50-59 মধ্যম | ⚠️ 40-49 দুর্বল | ❌ <40 খুব দুর্বল",
         parse_mode='Markdown'
     )
 
@@ -449,8 +514,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📁 **ফাইল ম্যানেজমেন্ট**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 • `/files` - সব CSV ফাইলের তালিকা
-• `/view 25-03-2026` - প্রথম পৃষ্ঠা দেখাবে
-• `/view 25-03-2026 2` - দ্বিতীয় পৃষ্ঠা দেখাবে
+• `/view 25-03-2026` - সব ডাটা দেখাবে
+• `/view 25-03-2026 2` - পৃষ্ঠা 2 দেখাবে
 • `/deletefile 25-03-2026` - ফাইল ডিলিট
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -468,9 +533,15 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • `/yesclear` - ক্লিয়ার কনফার্ম
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔄 **ডাটা রিলোড**
+📊 **স্কোর রেটিং চার্ট**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• `/reload` - Hugging Face থেকে ডাটা রিলোড করুন
+💎 85-100 : এক্সট্রিম শক্তিশালী
+🔥 80-84  : খুব শক্তিশালী
+⭐ 70-79  : শক্তিশালী
+✅ 60-69  : ভাল
+📈 50-59  : মধ্যম
+⚠️ 40-49  : দুর্বল
+❌ <40    : খুব দুর্বল
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📂 **স্টোরেজ লোকেশন**
@@ -512,6 +583,10 @@ async def insight_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for row in data[start_idx:]:
         if row and len(row) > 0 and row[0].upper() == symbol:
             insight = row[10] if len(row) > 10 else "কোনো ইনসাইট নেই"
+            score = row[9] if len(row) > 9 else "-"
+            score_emoji = get_score_emoji(score)
+            score_text = get_score_text(score)
+            
             tp1 = row[5] if len(row) > 5 else "-"
             tp2 = row[6] if len(row) > 6 else "-"
             tp3 = row[7] if len(row) > 7 else "-"
@@ -531,7 +606,7 @@ async def insight_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • TP2: `{tp2}`
 • TP3: `{tp3}`
 • RRR: `{row[8]}`
-• স্কোর: `{row[9]}/100`
+• স্কোর: `{score}/100 {score_emoji}` - {score_text}
 
 💡 **এলিয়ট ওয়েব অবস্থান:**
 • ওয়েভ: `{row[1]}`
@@ -566,8 +641,8 @@ async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"📭 {bot.current_date} তারিখের কোনো ডাটা নেই।")
         return
 
-    table = format_as_table(bot.current_data, f"{bot.current_date} - আজকের ডাটা")
-
+    table = format_as_table(bot.current_data, f"{bot.current_date} - আজকের ডাটা", 0, len(bot.current_data), 1, 1)
+    
     if len(table) > 4000:
         parts = [table[i:i+4000] for i in range(0, len(table), 4000)]
         for part in parts:
@@ -599,11 +674,11 @@ async def files_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(table, parse_mode='Markdown')
 
 async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """নির্দিষ্ট তারিখের CSV ফাইল দেখান - পেজিনেশন সহ"""
+    """নির্দিষ্ট তারিখের CSV ফাইল দেখান - মাঝারি নেভিগেশন"""
     if not context.args:
         await update.message.reply_text(
-            "❌ তারিখ দিন। উদাহরণ: `/view 25-03-2026` অথবা `/view 25-03-2026 2`\n\n"
-            "📌 পেজ নম্বর না দিলে 1 নম্বর পেজ দেখাবে।",
+            "❌ 📅 তারিখ দিন। উদাহরণ: `/view 25-03-2026` অথবা `/view 25-03-2026 2`\n\n"
+            "📌 পৃষ্ঠা নম্বর না দিলে সব ডাটা একসাথে দেখাবে।",
             parse_mode='Markdown'
         )
         return
@@ -611,28 +686,24 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     date_input = context.args[0].strip()
     date = fix_date_format(date_input)
 
-    page = 1
+    page = None
     if len(context.args) > 1:
         try:
             page = int(context.args[1])
             if page < 1:
                 page = 1
         except:
-            page = 1
+            page = None
 
-    items_per_page = 10
+    items_per_page = 5
 
-    status_msg = await update.message.reply_text(f"⏳ `{date}.csv` ফাইল খুঁজছি...", parse_mode='Markdown')
+    status_msg = await update.message.reply_text(f"⏳ 🔍 `{date}.csv` ফাইল খুঁজছি...", parse_mode='Markdown')
 
     try:
         data = hf_manager.read_csv_file(date)
 
         if data is None:
-            await status_msg.edit_text(
-                f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।\n\n"
-                f"💡 `/files` দেখে উপলব্ধ ফাইল চেক করুন।",
-                parse_mode='Markdown'
-            )
+            await status_msg.edit_text(f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।\n\n💡 `/files` দেখে উপলব্ধ ফাইল চেক করুন।", parse_mode='Markdown')
             return
 
         if not data:
@@ -650,6 +721,22 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         total_records = len(all_data)
+        
+        # যদি পৃষ্ঠা নম্বর না দেওয়া থাকে, সব ডাটা একসাথে দেখান
+        if page is None:
+            table = format_as_table(all_data, f"{date}.csv", 0, total_records, 1, 1)
+            final_message = table
+            
+            if len(final_message) > 4000:
+                await status_msg.delete()
+                parts = [final_message[i:i+4000] for i in range(0, len(final_message), 4000)]
+                for part in parts:
+                    await update.message.reply_text(part, parse_mode='Markdown')
+            else:
+                await status_msg.edit_text(final_message, parse_mode='Markdown')
+            return
+        
+        # পেজিনেশন সহ দেখান
         total_pages = (total_records + items_per_page - 1) // items_per_page
 
         if page > total_pages:
@@ -660,24 +747,63 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         page_data = all_data[start:end]
 
         offset = start
-        title_with_page = f"{date}.csv (পৃষ্ঠা {page}/{total_pages})"
-        table = format_as_table(page_data, title_with_page, offset)
-
-        pagination_info = f"\n\n📄 **পৃষ্ঠা {page} / {total_pages}**  |  মোট {total_records} টি রেকর্ড\n\n"
-
-        nav_buttons = []
+        
+        # টেবিল তৈরি
+        table = format_as_table(page_data, f"{date}.csv", offset, total_records, page, total_pages)
+        
+        # মাঝারি নেভিগেশন তৈরি
+        nav_parts = []
+        
+        # আগের পৃষ্ঠা
         if page > 1:
-            nav_buttons.append(f"◀️ আগের পৃষ্ঠা: `/view {date} {page-1}`")
+            nav_parts.append(f"[◀️](/view {date} {page-1})")
+        else:
+            nav_parts.append("◀️")
+        
+        # পৃষ্ঠা সংখ্যা (সংক্ষেপে)
+        if total_pages <= 7:
+            for p in range(1, total_pages + 1):
+                if p == page:
+                    nav_parts.append(f"**{p}**")
+                else:
+                    nav_parts.append(f"[{p}](/view {date} {p})")
+        else:
+            if page <= 4:
+                for p in range(1, 6):
+                    if p == page:
+                        nav_parts.append(f"**{p}**")
+                    else:
+                        nav_parts.append(f"[{p}](/view {date} {p})")
+                nav_parts.append("...")
+                nav_parts.append(f"[{total_pages}](/view {date} {total_pages})")
+            elif page >= total_pages - 3:
+                nav_parts.append(f"[1](/view {date} 1)")
+                nav_parts.append("...")
+                for p in range(total_pages - 4, total_pages + 1):
+                    if p == page:
+                        nav_parts.append(f"**{p}**")
+                    else:
+                        nav_parts.append(f"[{p}](/view {date} {p})")
+            else:
+                nav_parts.append(f"[1](/view {date} 1)")
+                nav_parts.append("...")
+                for p in range(page - 1, page + 2):
+                    if p == page:
+                        nav_parts.append(f"**{p}**")
+                    else:
+                        nav_parts.append(f"[{p}](/view {date} {p})")
+                nav_parts.append("...")
+                nav_parts.append(f"[{total_pages}](/view {date} {total_pages})")
+        
+        # পরবর্তী পৃষ্ঠা
         if page < total_pages:
-            nav_buttons.append(f"পরবর্তী পৃষ্ঠা ▶️: `/view {date} {page+1}`")
-
-        if nav_buttons:
-            pagination_info += " | ".join(nav_buttons)
-
-        if page == 1 and total_pages > 1:
-            pagination_info += f"\n\n💡 সব পৃষ্ঠা দেখতে: `/view {date} 1` থেকে `/view {date} {total_pages}` পর্যন্ত ব্যবহার করুন"
-
-        final_message = table + pagination_info
+            nav_parts.append(f"[▶️](/view {date} {page+1})")
+        else:
+            nav_parts.append("▶️")
+        
+        nav_bar = " ".join(nav_parts)
+        
+        final_message = table + f"\n\n{nav_bar}"
 
         if len(final_message) > 4000:
             await status_msg.delete()
@@ -751,23 +877,30 @@ async def symbols_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
         start_idx = 1
 
-    symbols = [row[0] for row in data[start_idx:] if row and len(row) > 0]
+    symbols_with_scores = []
+    for row in data[start_idx:]:
+        if row and len(row) > 0:
+            symbol = row[0]
+            score = row[9] if len(row) > 9 else "-"
+            score_emoji = get_score_emoji(score)
+            symbols_with_scores.append(f"{symbol} {score_emoji}")
 
-    if not symbols:
+    if not symbols_with_scores:
         await status_msg.edit_text(f"📭 `{date}.csv` ফাইলে কোনো সিম্বল নেই।", parse_mode='Markdown')
         return
 
     symbol_lines = []
-    for i in range(0, len(symbols), 5):
-        batch = symbols[i:i+5]
-        symbol_lines.append(" | ".join([f"`{s}`" for s in batch]))
+    for i in range(0, len(symbols_with_scores), 4):
+        batch = symbols_with_scores[i:i+4]
+        symbol_lines.append(" | ".join(batch))
     
     symbol_list = "\n".join([f"{i+1:3}. {line}" for i, line in enumerate(symbol_lines)])
 
     await status_msg.edit_text(
-        f"📋 **{date}.csv - সিম্বল লিস্ট ({len(symbols)} টি):**\n\n{symbol_list}\n\n"
+        f"📋 **{date}.csv - সিম্বল লিস্ট ({len(symbols_with_scores)} টি):**\n\n{symbol_list}\n\n"
         f"💡 সিম্বল ডিলিট: `/deletesymbol {date} [সিম্বল]`\n"
-        f"💡 সম্পূর্ণ ইনসাইট: `/insight [সিম্বল] {date}`",
+        f"💡 সম্পূর্ণ ইনসাইট: `/insight [সিম্বল] {date}`\n\n"
+        f"📊 **স্কোর রেটিং:** 💎85+ 🔥80-84 ⭐70-79 ✅60-69 📈50-59 ⚠️40-49 ❌<40",
         parse_mode='Markdown'
     )
 
