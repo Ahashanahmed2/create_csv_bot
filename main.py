@@ -75,63 +75,50 @@ class HuggingFaceManager:
             return []
 
     def read_csv_file(self, date):
-        """নির্দিষ্ট তারিখের CSV ফাইল পড়ুন - ফিক্সড ভার্সন"""
-        if not self.token:
-            print("❌ No HF_TOKEN!")
+    """নির্দিষ্ট তারিখের CSV ফাইল পড়ুন - ফিক্সড"""
+    if not self.token:
+        print("❌ No HF_TOKEN!")
+        return None
+
+    # সঠিক পাথ - stock ফোল্ডার সহ
+    filename = f"{self.folder}/{date}.csv"
+    print(f"🔍 Looking for: {filename}")
+
+    try:
+        # সব ফাইল লিস্ট করুন
+        files = list_repo_files(self.repo_id, token=self.token, repo_type=self.repo_type)
+        print(f"📁 Total files: {len(files)}")
+        
+        # stock ফোল্ডারে ফাইল আছে কিনা চেক করুন
+        if filename not in files:
+            print(f"❌ File not found: {filename}")
+            print(f"📁 Available stock files: {[f for f in files if f.startswith('stock/')][:10]}")
             return None
 
-        print(f"🔍 Looking for {date}.csv in repo...")
+        print(f"✅ File found, downloading...")
+        
+        temp_file = hf_hub_download(
+            repo_id=self.repo_id,
+            filename=filename,
+            token=self.token,
+            repo_type=self.repo_type,
+            local_dir=tempfile.gettempdir()
+        )
 
-        try:
-            all_files = list_repo_files(self.repo_id, token=self.token, repo_type=self.repo_type)
-            print(f"📁 Total files: {len(all_files)}")
-            
-            possible_paths = [
-                f"{self.folder}/{date}.csv",
-                f"{date}.csv",
-                f"{self.folder}/{date}.CSV",
-                f"{date}.CSV"
-            ]
+        data = []
+        with open(temp_file, 'r', encoding='utf-8-sig') as f:
+            reader = csv.reader(f)
+            data = list(reader)
 
-            found_path = None
-            for path in possible_paths:
-                if path in all_files:
-                    found_path = path
-                    print(f"✅ Found as: {path}")
-                    break
-            
-            if not found_path:
-                stock_files = [f for f in all_files if f.endswith('.csv')]
-                print(f"❌ File not found. Available CSV files: {stock_files[:10]}")
-                return None
+        os.remove(temp_file)
+        print(f"✅ Loaded {len(data)} records from {filename}")
+        return data
 
-            print(f"📥 Downloading: {found_path}")
-            temp_file = hf_hub_download(
-                repo_id=self.repo_id,
-                filename=found_path,
-                token=self.token,
-                repo_type=self.repo_type,
-                local_dir=tempfile.gettempdir()
-            )
-
-            data = []
-            with open(temp_file, 'r', encoding='utf-8-sig') as f:
-                reader = csv.reader(f)
-                data = list(reader)
-
-            try:
-                os.remove(temp_file)
-            except:
-                pass
-
-            print(f"✅ Loaded {len(data)} records from {found_path}")
-            return data
-
-        except Exception as e:
-            print(f"❌ Error reading file: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
     def save_csv_file(self, date, data):
         """CSV ফাইল Hugging Face-এ সেভ করুন"""
