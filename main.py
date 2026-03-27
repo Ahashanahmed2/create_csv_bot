@@ -324,15 +324,18 @@ def fix_date_format(date_str):
     return date_str
 
 def format_as_table(data, title):
-    """ডাটাকে সুন্দর টেবিল আকারে ফরম্যাট করা - 11 কলাম"""
+    """ডাটাকে সুন্দর টেবিল আকারে ফরম্যাট করা - ইনসাইট কলাম শেষে"""
     if not data:
         return f"📭 {title} - কোনো ডাটা নেই।"
 
+    # Column headers in Bengali (insight at the end)
     headers = ["#", "সিম্বল", "এলিয়ট ওয়েব", "সাব-ওয়েব", "এন্ট্রি", "স্টপ", "TP1", "TP2", "TP3", "RRR", "স্কোর", "ইনসাইট"]
     
-    col_widths = [4, 12, 18, 15, 12, 8, 8, 8, 8, 6, 6, 20]
+    # Column widths - insight column smaller in main table
+    col_widths = [4, 12, 18, 15, 12, 8, 8, 8, 8, 6, 6, 25]
     
-    table = f"📊 **{title} - মোট {len(data)} টি রেকর্ড:**\n\n```\n"
+    table = f"📊 **{title} - মোট {len(data)} টি রেকর্ড:**\n\n"
+    table += f"💡 সম্পূর্ণ ইনসাইট দেখতে `/insight [সিম্বল]` ব্যবহার করুন\n\n```\n"
     
     header_line = ""
     for i, header in enumerate(headers):
@@ -416,12 +419,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🤖 **স্টক ডাটা বট - Hugging Face স্টোরেজ**\n\n"
         "📝 **ডাটা যোগ করুন (11 কলাম):**\n"
         "`ADVENT,Impulse (Up),Wave 5 of 3,13.8-14.2,13.2,15.0,16.0,17.5,1:2.5,68,মূল্য 13.0 টাকার নিচে ব্রেক করতে পারেনি...`\n\n"
-        "**কলামের ক্রম:**\n"
-        "1. symbol | 2. এলিয়ট ওয়েব | 3. সাব-ওয়েব | 4. এন্ট্রি | 5. স্টপ\n"
-        "6. TP1 | 7. TP2 | 8. TP3 | 9. RRR | 10. স্কোর | 11. কুইক ইনসাইট\n\n"
         "📚 **কমান্ড:**\n"
         "`/help` - সব কমান্ড দেখুন\n"
         "`/list` - আজকের ডাটা দেখুন\n"
+        "`/insight [সিম্বল]` - সম্পূর্ণ ইনসাইট দেখুন\n"
         "`/files` - সব CSV ফাইলের তালিকা\n"
         "`/view [তারিখ]` - ফাইল দেখুন\n"
         "`/symbols [তারিখ]` - ফাইলের সিম্বল দেখুন\n"
@@ -456,10 +457,16 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 11. কুইক ইনসাইট
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 **ইনসাইট দেখার নিয়ম**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• `/insight ADVENT` - সম্পূর্ণ বিশ্লেষণ দেখাবে
+• `/insight ADVENT 25-03-2026` - নির্দিষ্ট তারিখের ফাইল থেকে দেখাবে
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📁 **ফাইল ম্যানেজমেন্ট**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 • `/files` - সব CSV ফাইলের তালিকা
-• `/view 25-03-2026` - নির্দিষ্ট ফাইল দেখুন
+• `/view 25-03-2026` - নির্দিষ্ট ফাইল দেখুন (ইনসাইট সংক্ষেপে)
 • `/deletefile 25-03-2026` - ফাইল ডিলিট
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -482,6 +489,63 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 Hugging Face: `ahashanahmed/csv/stock/`
 """
     await update.message.reply_text(help_text, parse_mode='Markdown')
+
+async def insight_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """নির্দিষ্ট সিম্বলের সম্পূর্ণ কুইক ইনসাইট দেখান"""
+    if not context.args:
+        await update.message.reply_text("❌ সিম্বল দিন। উদাহরণ: `/insight ADVENT`")
+        return
+    
+    symbol = context.args[0].upper()
+    date = context.args[1] if len(context.args) > 1 else bot.current_date
+    date = fix_date_format(date)
+    
+    status_msg = await update.message.reply_text(f"⏳ '{symbol}' এর ইনসাইট খুঁজছি...")
+    
+    data = hf_manager.read_csv_file(date)
+    
+    if data is None:
+        await status_msg.edit_text(f"❌ {date}.csv ফাইল পাওয়া যায়নি।")
+        return
+    
+    start_idx = 0
+    if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
+        start_idx = 1
+    
+    for row in data[start_idx:]:
+        if row and len(row) > 0 and row[0].upper() == symbol:
+            insight = row[10] if len(row) > 10 else "কোনো ইনসাইট নেই"
+            
+            # Format TP values nicely
+            tp1 = row[5] if len(row) > 5 else "-"
+            tp2 = row[6] if len(row) > 6 else "-"
+            tp3 = row[7] if len(row) > 7 else "-"
+            
+            message = f"""
+📊 **{symbol} - সম্পূর্ণ বিশ্লেষণ**
+
+📅 তারিখ: `{date}`
+
+🔍 **টেকনিক্যাল ইনসাইট:**
+{insight}
+
+📈 **ট্রেডিং প্যারামিটারস:**
+• এন্ট্রি জোন: `{row[3]}`
+• স্টপ লস: `{row[4]}`
+• TP1: `{tp1}`
+• TP2: `{tp2}`
+• TP3: `{tp3}`
+• RRR: `{row[8]}`
+• স্কোর: `{row[9]}/100`
+
+💡 **এলিয়ট ওয়েব অবস্থান:**
+• ওয়েভ: `{row[1]}`
+• সাব-ওয়েভ: `{row[2]}`
+"""
+            await status_msg.edit_text(message, parse_mode='Markdown')
+            return
+    
+    await status_msg.edit_text(f"❌ '{symbol}' সিম্বলটি {date}.csv ফাইলে পাওয়া যায়নি।")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
@@ -648,7 +712,8 @@ async def symbols_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await status_msg.edit_text(
         f"📋 **{date}.csv - সিম্বল লিস্ট ({len(symbols)} টি):**\n\n{symbol_list}\n\n"
-        f"💡 সিম্বল ডিলিট: `/deletesymbol {date} [সিম্বল]`",
+        f"💡 সিম্বল ডিলিট: `/deletesymbol {date} [সিম্বল]`\n"
+        f"💡 সম্পূর্ণ ইনসাইট: `/insight [সিম্বل]`",
         parse_mode='Markdown'
     )
 
@@ -759,6 +824,7 @@ async def run_bot():
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("list", list_command))
+        application.add_handler(CommandHandler("insight", insight_command))  # NEW COMMAND
         application.add_handler(CommandHandler("clear", clear_command))
         application.add_handler(CommandHandler("yesclear", yesclear_command))
         application.add_handler(CommandHandler("files", files_command))
