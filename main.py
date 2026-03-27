@@ -75,50 +75,50 @@ class HuggingFaceManager:
             return []
 
     def read_csv_file(self, date):
-    """নির্দিষ্ট তারিখের CSV ফাইল পড়ুন - ফিক্সড"""
-    if not self.token:
-        print("❌ No HF_TOKEN!")
-        return None
-
-    # সঠিক পাথ - stock ফোল্ডার সহ
-    filename = f"{self.folder}/{date}.csv"
-    print(f"🔍 Looking for: {filename}")
-
-    try:
-        # সব ফাইল লিস্ট করুন
-        files = list_repo_files(self.repo_id, token=self.token, repo_type=self.repo_type)
-        print(f"📁 Total files: {len(files)}")
-        
-        # stock ফোল্ডারে ফাইল আছে কিনা চেক করুন
-        if filename not in files:
-            print(f"❌ File not found: {filename}")
-            print(f"📁 Available stock files: {[f for f in files if f.startswith('stock/')][:10]}")
+        """নির্দিষ্ট তারিখের CSV ফাইল পড়ুন - ফিক্সড"""
+        if not self.token:
+            print("❌ No HF_TOKEN!")
             return None
 
-        print(f"✅ File found, downloading...")
-        
-        temp_file = hf_hub_download(
-            repo_id=self.repo_id,
-            filename=filename,
-            token=self.token,
-            repo_type=self.repo_type,
-            local_dir=tempfile.gettempdir()
-        )
+        # সঠিক পাথ - stock ফোল্ডার সহ
+        filename = f"{self.folder}/{date}.csv"
+        print(f"🔍 Looking for: {filename}")
 
-        data = []
-        with open(temp_file, 'r', encoding='utf-8-sig') as f:
-            reader = csv.reader(f)
-            data = list(reader)
+        try:
+            # সব ফাইল লিস্ট করুন
+            files = list_repo_files(self.repo_id, token=self.token, repo_type=self.repo_type)
+            print(f"📁 Total files: {len(files)}")
+            
+            # stock ফোল্ডারে ফাইল আছে কিনা চেক করুন
+            if filename not in files:
+                print(f"❌ File not found: {filename}")
+                print(f"📁 Available stock files: {[f for f in files if f.startswith('stock/')][:10]}")
+                return None
 
-        os.remove(temp_file)
-        print(f"✅ Loaded {len(data)} records from {filename}")
-        return data
+            print(f"✅ File found, downloading...")
+            
+            temp_file = hf_hub_download(
+                repo_id=self.repo_id,
+                filename=filename,
+                token=self.token,
+                repo_type=self.repo_type,
+                local_dir=tempfile.gettempdir()
+            )
 
-    except Exception as e:
-        print(f"❌ Error: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
+            data = []
+            with open(temp_file, 'r', encoding='utf-8-sig') as f:
+                reader = csv.reader(f)
+                data = list(reader)
+
+            os.remove(temp_file)
+            print(f"✅ Loaded {len(data)} records from {filename}")
+            return data
+
+        except Exception as e:
+            print(f"❌ Error: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
 
     def save_csv_file(self, date, data):
         """CSV ফাইল Hugging Face-এ সেভ করুন"""
