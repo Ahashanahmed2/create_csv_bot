@@ -311,43 +311,31 @@ def fix_date_format(date_str):
     return date_str
 
 def format_as_table(data, title):
-    """ডাটাকে সুন্দর টেবিল আকারে ফরম্যাট করা"""
+    """সরল টেবিল ফরম্যাট - টেস্টের জন্য"""
     if not data:
         return f"📭 {title} - কোনো ডাটা নেই।"
-
-    headers = ["#", "সিম্বল", "এলিয়ট ওয়েব", "সাব-ওয়েব", "এন্ট্রি", "স্টপ", "TP1", "TP2", "TP3", "RRR", "স্কোর", "ইনসাইট"]
-    col_widths = [4, 12, 18, 15, 12, 8, 8, 8, 8, 6, 6, 25]
     
-    table = f"📊 **{title} - মোট {len(data)} টি রেকর্ড:**\n\n"
-    table += f"💡 সম্পূর্ণ ইনসাইট দেখতে `/insight [সিম্বল] [তারিখ]` ব্যবহার করুন\n\n```\n"
-    
-    header_line = ""
-    for i, header in enumerate(headers):
-        header_line += f"{header:<{col_widths[i]}}"
-    table += header_line + "\n"
-    
-    separator = ""
-    for width in col_widths:
-        separator += "-" * width
-    table += separator + "\n"
+    result = f"📊 **{title} - মোট {len(data)} টি রেকর্ড:**\n\n"
+    result += "```\n"
+    result += f"{'ক্রম':<4} {'সিম্বল':<12} {'এন্ট্রি':<12} {'স্টপ':<8} {'TP1':<8} {'TP2':<8} {'TP3':<8} {'RRR':<8} {'স্কোর':<6}\n"
+    result += "-" * 80 + "\n"
     
     for i, row in enumerate(data):
-        line = f"{i+1:<{col_widths[0]}}"
+        symbol = row[0][:12] if len(row) > 0 else "-"
+        entry = row[3][:12] if len(row) > 3 else "-"
+        stop = row[4][:8] if len(row) > 4 else "-"
+        tp1 = row[5][:8] if len(row) > 5 else "-"
+        tp2 = row[6][:8] if len(row) > 6 else "-"
+        tp3 = row[7][:8] if len(row) > 7 else "-"
+        rrr = row[8][:8] if len(row) > 8 else "-"
+        score = row[9][:6] if len(row) > 9 else "-"
         
-        for col_idx in range(1, len(headers)):
-            if col_idx-1 < len(row):
-                cell = str(row[col_idx-1])[:col_widths[col_idx]]
-                line += f"{cell:<{col_widths[col_idx]}}"
-            else:
-                line += f"{'':<{col_widths[col_idx]}}"
-        
-        table += line + "\n"
-        
-        if (i + 1) % 10 == 0 and i + 1 < len(data):
-            table += separator + "\n"
+        result += f"{i+1:<4} {symbol:<12} {entry:<12} {stop:<8} {tp1:<8} {tp2:<8} {tp3:<8} {rrr:<8} {score:<6}\n"
     
-    table += "```"
-    return table
+    result += "```\n"
+    result += f"\n💡 সম্পূর্ণ ইনসাইট দেখতে `/insight [সিম্বল] {title[:10]}` ব্যবহার করুন"
+    
+    return result
 
 def format_files_table(dates):
     """ফাইলের তালিকা দেখান"""
