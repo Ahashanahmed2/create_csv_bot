@@ -19,7 +19,7 @@ HF_TOKEN = os.environ.get("HF_TOKEN")
 HF_REPO = "ahashanahmed/csv"
 HF_FOLDER = "stock"
 
-# 9 columns: symbol to score (including sub-wave)
+# 11 columns: full data
 COLUMNS = [
     "symbol",
     "এলিয়ট ওয়েব (বর্তমান অবস্থান)",
@@ -29,7 +29,9 @@ COLUMNS = [
     "টেক প্রফিট ১ (টাকা)",
     "টেক প্রফিট ২ (টাকা)",
     "রিস্ক-রিওয়ার্ড অনুপাত (RRR)",
-    "স্কোর (১০০ এর মধ্যে)"
+    "স্কোর (১০০ এর মধ্যে)",
+    "কনফিডেন্স লেভেল",
+    "অ্যাকশন রিকমেন্ডেশন"
 ]
 
 class HuggingFaceManager:
@@ -46,7 +48,7 @@ class HuggingFaceManager:
         print(f"   Type: {self.repo_type}")
         print(f"   Token: {'✅ Yes' if self.token else '❌ No'}")
         print(f"   Folder: {self.folder}")
-        print(f"   Columns: {len(COLUMNS)} columns (including sub-wave)")
+        print(f"   Columns: {len(COLUMNS)} columns")
 
     def get_all_csv_files(self):
         """সব CSV ফাইলের তালিকা"""
@@ -233,13 +235,13 @@ class StockDataBot:
             print(f"No data for {self.current_date}")
 
     def parse_csv_line(self, line):
-        """CSV লাইন পার্স করে 9টি কলামে রূপান্তর (sub-wave সহ)"""
+        """CSV লাইন পার্স করে 11টি কলামে রূপান্তর"""
         items = [item.strip() for item in line.split(',')]
         
-        # If less than 9 columns, pad with empty strings
+        # If less than 11 columns, pad with empty strings
         if len(items) < len(COLUMNS):
             items.extend([''] * (len(COLUMNS) - len(items)))
-        # If more than 9 columns, take first 9
+        # If more than 11 columns, take first 11
         elif len(items) > len(COLUMNS):
             items = items[:len(COLUMNS)]
         
@@ -301,15 +303,14 @@ class StockDataBot:
             return f"📭 {self.current_date} তারিখের কোনো ডাটা নেই।"
 
         preview = f"📊 **{self.current_date} - মোট {len(self.current_data)} টি রেকর্ড:**\n\n```\n"
-        preview += f"{'#':<4} {'সিম্বল':<12} {'এলিয়ট ওয়েব':<20} {'সাব-ওয়েব':<12} {'এন্ট্রি জোন':<15}\n"
-        preview += "-" * 70 + "\n"
+        preview += f"{'#':<4} {'সিম্বল':<12} {'এলিয়ট ওয়েব':<20} {'এন্ট্রি':<12}\n"
+        preview += "-" * 55 + "\n"
 
         for i, row in enumerate(self.current_data):
             symbol = row[0][:12] if len(row[0]) > 12 else row[0]
             wave = row[1][:20] if len(row[1]) > 20 else row[1]
-            subwave = row[2][:12] if len(row[2]) > 12 else row[2]
-            entry = row[3][:15] if len(row[3]) > 15 else row[3]
-            preview += f"{i+1:<4} {symbol:<12} {wave:<20} {subwave:<12} {entry:<15}\n"
+            entry = row[3][:12] if len(row[3]) > 12 else row[3]
+            preview += f"{i+1:<4} {symbol:<12} {wave:<20} {entry:<12}\n"
 
         preview += "```"
         return preview
@@ -331,12 +332,12 @@ def fix_date_format(date_str):
     return date_str
 
 def format_as_table(data, title):
-    """ডাটাকে সুন্দর টেবিল আকারে ফরম্যাট করা - sub-wave সহ 9 কলাম"""
+    """ডাটাকে সুন্দর টেবিল আকারে ফরম্যাট করা - 11 কলাম"""
     if not data:
         return f"📭 {title} - কোনো ডাটা নেই।"
 
-    # Column headers in Bengali (9 columns + serial)
-    headers = ["#", "সিম্বল", "এলিয়ট ওয়েব", "সাব-ওয়েব", "এন্ট্রি", "স্টপ", "TP1", "TP2", "RRR", "স্কোর"]
+    # Column headers in Bengali
+    headers = ["#", "সিম্বল", "এলিয়ট ওয়েব", "সাব-ওয়েব", "এন্ট্রি", "স্টপ", "TP1", "TP2", "RRR", "স্কোর", "কনফিডেন্স", "অ্যাকশন"]
 
     # Calculate column widths based on content
     col_widths = [4]  # সিরিয়াল নম্বরের জন্য
@@ -346,20 +347,22 @@ def format_as_table(data, title):
         max_width = len(headers[col_idx])
         for row in data:
             if col_idx <= len(row):
-                cell_text = str(row[col_idx-1])[:30]  # col_idx-1 because row starts at 0
+                cell_text = str(row[col_idx-1])[:30]
                 max_width = max(max_width, len(cell_text))
         col_widths.append(min(max_width + 2, 20))
 
     # Adjust some columns manually
     col_widths[1] = min(col_widths[1], 12)   # সিম্বল
     col_widths[2] = min(col_widths[2], 18)   # এলিয়ট ওয়েব
-    col_widths[3] = min(col_widths[3], 15)   # সাব-ওয়েব
+    col_widths[3] = min(col_widths[3], 12)   # সাব-ওয়েব
     col_widths[4] = min(col_widths[4], 12)   # এন্ট্রি
     col_widths[5] = min(col_widths[5], 8)    # স্টপ
     col_widths[6] = min(col_widths[6], 8)    # TP1
     col_widths[7] = min(col_widths[7], 8)    # TP2
     col_widths[8] = min(col_widths[8], 6)    # RRR
     col_widths[9] = min(col_widths[9], 6)    # স্কোর
+    col_widths[10] = min(col_widths[10], 12) # কনফিডেন্স
+    col_widths[11] = min(col_widths[11], 15) # অ্যাকশন
 
     # Create table
     table = f"📊 **{title} - মোট {len(data)} টি রেকর্ড:**\n\n```\n"
@@ -415,12 +418,12 @@ def format_files_table(dates):
     return table
 
 def get_search_results_table(results, search_symbol):
-    """সার্চ রেজাল্ট সুন্দর টেবিল আকারে দেখান - sub-wave সহ"""
+    """সার্চ রেজাল্ট সুন্দর টেবিল আকারে দেখান"""
     if not results:
         return f"❌ '{search_symbol}' কোনো ফাইলে পাওয়া যায়নি।"
 
-    headers = ["#", "তারিখ", "সিম্বল", "এলিয়ট ওয়েব", "সাব-ওয়েব", "এন্ট্রি", "স্কোর"]
-    col_widths = [4, 12, 12, 18, 12, 12, 6]
+    headers = ["#", "তারিখ", "সিম্বল", "এলিয়ট ওয়েব", "এন্ট্রি", "অ্যাকশন"]
+    col_widths = [4, 12, 12, 20, 12, 15]
 
     table = f"🔍 **'{search_symbol}' পাওয়া গেছে {len(results)} টি ফাইলে:**\n\n```\n"
 
@@ -435,9 +438,8 @@ def get_search_results_table(results, search_symbol):
         line += f"{r['date'][:col_widths[1]]:<{col_widths[1]}}"
         line += f"{r['row'][0][:col_widths[2]]:<{col_widths[2]}}"
         line += f"{r['row'][1][:col_widths[3]]:<{col_widths[3]}}"
-        line += f"{r['row'][2][:col_widths[4]]:<{col_widths[4]}}" if len(r['row']) > 2 else f"{'':<{col_widths[4]}}"
-        line += f"{r['row'][3][:col_widths[5]]:<{col_widths[5]}}" if len(r['row']) > 3 else f"{'':<{col_widths[5]}}"
-        line += f"{r['row'][8][:col_widths[6]]:<{col_widths[6]}}" if len(r['row']) > 8 else f"{'':<{col_widths[6]}}"
+        line += f"{r['row'][3][:col_widths[4]]:<{col_widths[4]}}" if len(r['row']) > 3 else f"{'':<{col_widths[4]}}"
+        line += f"{r['row'][10][:col_widths[5]]:<{col_widths[5]}}" if len(r['row']) > 10 else f"{'':<{col_widths[5]}}"
         table += line + "\n"
 
     table += "```"
@@ -449,16 +451,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 **স্টক ডাটা বট - Hugging Face স্টোরেজ**\n\n"
         "📝 **ডাটা যোগ করুন:**\n"
-        "CSV ফরম্যাটে ডাটা পাঠান (9টি কলাম):\n"
-        "`BDCOM,Impulse (Wave 4),Sub-wave C,25.80-26.30,24.90,27.50,29.00,1:1.8,72`\n\n"
+        "CSV ফরম্যাটে ডাটা পাঠান (11টি কলাম):\n"
+        "`BDCOM,Impulse (Wave 4),Sub-wave C,25.80-26.30,24.90,27.50,29.00,1:1.8,72,High,Accumulate`\n\n"
         "**কলামের ক্রম:**\n"
-        "1. symbol | 2. এলিয়ট ওয়েব | 3. সাব-ওয়েব | 4. এন্ট্রি জোন | 5. স্টপ লস\n"
-        "6. TP1 | 7. TP2 | 8. RRR | 9. স্কোর\n\n"
+        "1. symbol | 2. এলিয়ট ওয়েব | 3. সাব-ওয়েব | 4. এন্ট্রি | 5. স্টপ\n"
+        "6. TP1 | 7. TP2 | 8. RRR | 9. স্কোর | 10. কনফিডেন্স | 11. অ্যাকশন\n\n"
         "📚 **কমান্ড:**\n"
         "`/help` - সব কমান্ড দেখুন\n"
-        "`/list` - আজকের ডাটা দেখুন (সম্পূর্ণ টেবিল)\n"
-        "`/files` - সব CSV ফাইলের তালিকা (টেবিল)\n"
-        "`/view [তারিখ]` - ফাইল দেখুন (সম্পূর্ণ টেবিল)\n"
+        "`/list` - আজকের ডাটা দেখুন\n"
+        "`/files` - সব CSV ফাইলের তালিকা\n"
+        "`/view [তারিখ]` - ফাইল দেখুন\n"
         "`/symbols [তারিখ]` - ফাইলের সিম্বল দেখুন\n"
         "`/search [সিম্বল]` - সব ফাইলে সিম্বল খুঁজুন\n"
         "`/deletesymbol [তারিখ] [সিম্বল]` - সিম্বল ডিলিট\n"
@@ -475,8 +477,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📝 **ডাটা যোগ করার নিয়ম**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-CSV ফরম্যাটে 9টি কলাম পাঠান:
-`BDCOM,Impulse (Wave 4),Sub-wave C,25.80-26.30,24.90,27.50,29.00,1:1.8,72`
+CSV ফরম্যাটে 11টি কলাম পাঠান:
+`BDCOM,Impulse (Wave 4),Sub-wave C,25.80-26.30,24.90,27.50,29.00,1:1.8,72,High,Accumulate`
 
 **কলামের ক্রম:**
 1. symbol
@@ -488,14 +490,15 @@ CSV ফরম্যাটে 9টি কলাম পাঠান:
 7. টেক প্রফিট ২ (টাকা)
 8. রিস্ক-রিওয়ার্ড অনুপাত (RRR)
 9. স্কোর (১০০ এর মধ্যে)
+10. কনফিডেন্স লেভেল
+11. অ্যাকশন রিকমেন্ডেশন
 
-💡 **টিপ:** সাব-ওয়েব ফিল্ড খালি থাকলে `,` দিয়ে ফাঁকা রাখুন:
-`ADVENT,Impulse (Up),,13.8-14.2,13.0,15.0,16.0,1:2.5,68`
+💡 **টিপ:** কম ডাটা পাঠালে বাকি ফিল্ড খালি থাকবে।
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📁 **ফাইল ম্যানেজমেন্ট**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• `/files` - সব CSV ফাইলের তালিকা (টেবিল)
+• `/files` - সব CSV ফাইলের তালিকা
 • `/view 25-03-2026` - নির্দিষ্ট ফাইল দেখুন
 • `/deletefile 25-03-2026` - ফাইল ডিলিট করুন
 
@@ -539,10 +542,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(
             "❌ CSV ফরম্যাটে ডাটা পাঠান। সাহায্যের জন্য `/help` দেখুন।\n\n"
-            "উদাহরণ (সাব-ওয়েব সহ):\n"
-            "`BDCOM,Impulse (Wave 4),Sub-wave C,25.80-26.30,24.90,27.50,29.00,1:1.8,72`\n\n"
-            "উদাহরণ (সাব-ওয়েব খালি):\n"
-            "`ADVENT,Impulse (Up),,13.8-14.2,13.0,15.0,16.0,1:2.5,68`",
+            "উদাহরণ (11 কলাম):\n"
+            "`BDCOM,Impulse (Wave 4),Sub-wave C,25.80-26.30,24.90,27.50,29.00,1:1.8,72,High,Accumulate`",
             parse_mode='Markdown'
         )
 
@@ -758,6 +759,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 📅 আজকের তারিখ: `{bot.current_date}`
 📝 আজকের রেকর্ড: `{len(bot.current_data)}` টি
+📋 মোট কলাম: `{len(COLUMNS)}` টি
 
 📂 মোট CSV ফাইল: `{len(dates)}` টি
 """
