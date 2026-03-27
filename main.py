@@ -75,26 +75,37 @@ class HuggingFaceManager:
             return []
 
     def read_csv_file(self, date):
-        """নির্দিষ্ট তারিখের CSV ফাইল পড়ুন"""
+        """নির্দিষ্ট তারিখের CSV ফাইল পড়ুন - ফিক্সড পাথ চেক"""
         if not self.token:
             print("❌ No HF_TOKEN!")
             return None
 
-        filename = f"{self.folder}/{date}.csv"
-        print(f"🔍 Looking for: {filename}")
+        possible_paths = [
+            f"{self.folder}/{date}.csv",   # stock/25-03-2026.csv
+            f"{date}.csv",                 # 25-03-2026.csv
+            f"{self.folder}/{date}.CSV",
+            f"{date}.CSV"
+        ]
 
+        print(f"🔍 Looking for {date}.csv in repo...")
         try:
-            files = list_repo_files(self.repo_id, token=self.token, repo_type=self.repo_type)
-
-            if filename not in files:
-                print(f"❌ File not found: {filename}")
+            all_files = list_repo_files(self.repo_id, token=self.token, repo_type=self.repo_type)
+            print(f"📁 Found {len(all_files)} files total. Checking paths...")
+            
+            found_path = None
+            for path in possible_paths:
+                if path in all_files:
+                    found_path = path
+                    print(f"✅ Found as: {path}")
+                    break
+            
+            if not found_path:
+                print(f"❌ File not found. Available stock files: {[f for f in all_files if 'stock' in f]}")
                 return None
-
-            print(f"✅ File found, downloading...")
 
             temp_file = hf_hub_download(
                 repo_id=self.repo_id,
-                filename=filename,
+                filename=found_path,
                 token=self.token,
                 repo_type=self.repo_type,
                 local_dir=tempfile.gettempdir()
@@ -106,7 +117,7 @@ class HuggingFaceManager:
                 data = list(reader)
 
             os.remove(temp_file)
-            print(f"✅ Loaded {len(data)} records from {filename}")
+            print(f"✅ Loaded {len(data)} records from {found_path}")
             return data
 
         except Exception as e:
@@ -213,7 +224,6 @@ class HuggingFaceManager:
         return results
 
 hf_manager = HuggingFaceManager()
-
 class StockDataBot:
     def __init__(self):
         self.current_data = []
