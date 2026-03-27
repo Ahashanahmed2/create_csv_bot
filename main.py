@@ -28,10 +28,10 @@ COLUMNS = [
     "স্টপ লস (টাকা)",
     "টেক প্রফিট ১ (টাকা)",
     "টেক প্রফিট ২ (টাকা)",
+    "টেক প্রফিট ৩ (টাকা)",
     "রিস্ক-রিওয়ার্ড অনুপাত (RRR)",
     "স্কোর (১০০ এর মধ্যে)",
-    "কনফিডেন্স লেভেল",
-    "অ্যাকশন রিকমেন্ডেশন"
+    "কুইক ইনসাইট"
 ]
 
 class HuggingFaceManager:
@@ -165,13 +165,11 @@ class HuggingFaceManager:
         if not data:
             return False, f"❌ ফাইলটি খালি।"
 
-        # Check if first row is header
         start_idx = 0
         if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
             start_idx = 1
 
-        original_count = len(data) - start_idx
-        new_data = data[:start_idx]  # Keep header if exists
+        new_data = data[:start_idx]
         deleted_count = 0
 
         for row in data[start_idx:]:
@@ -185,7 +183,7 @@ class HuggingFaceManager:
 
         success, msg = self.save_csv_file(date, new_data)
         if success:
-            return True, f"✅ {symbol} ডিলিট করা হয়েছে। {date}.csv ফাইল আপডেট হয়েছে। (ডিলিট: {deleted_count} টি)"
+            return True, f"✅ {symbol} ডিলিট করা হয়েছে। (ডিলিট: {deleted_count} টি)"
         return False, msg
 
     def search_symbol_all_files(self, symbol):
@@ -196,7 +194,6 @@ class HuggingFaceManager:
         for date in dates:
             data = self.read_csv_file(date)
             if data and len(data) > 0:
-                # Check if first row is header
                 start_idx = 0
                 if data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
                     start_idx = 1
@@ -224,7 +221,6 @@ class StockDataBot:
         """আজকের ডাটা লোড করুন"""
         data = hf_manager.read_csv_file(self.current_date)
         if data:
-            # Check if first row is header
             start_idx = 0
             if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
                 start_idx = 1
@@ -238,10 +234,8 @@ class StockDataBot:
         """CSV লাইন পার্স করে 11টি কলামে রূপান্তর"""
         items = [item.strip() for item in line.split(',')]
         
-        # If less than 11 columns, pad with empty strings
         if len(items) < len(COLUMNS):
             items.extend([''] * (len(COLUMNS) - len(items)))
-        # If more than 11 columns, take first 11
         elif len(items) > len(COLUMNS):
             items = items[:len(COLUMNS)]
         
@@ -259,8 +253,7 @@ class StockDataBot:
             
             row = self.parse_csv_line(line)
             
-            if len(row) >= 1 and row[0]:  # At least symbol should be present
-                # Check if symbol already exists
+            if len(row) >= 1 and row[0]:
                 exists = False
                 for existing in self.current_data:
                     if existing and len(existing) > 0 and existing[0].upper() == row[0].upper():
@@ -273,7 +266,6 @@ class StockDataBot:
                     added += 1
 
         if added > 0:
-            # Save with headers
             data_to_save = [COLUMNS] + self.current_data
             success, msg = hf_manager.save_csv_file(self.current_date, data_to_save)
             if success:
@@ -303,14 +295,14 @@ class StockDataBot:
             return f"📭 {self.current_date} তারিখের কোনো ডাটা নেই।"
 
         preview = f"📊 **{self.current_date} - মোট {len(self.current_data)} টি রেকর্ড:**\n\n```\n"
-        preview += f"{'#':<4} {'সিম্বল':<12} {'এলিয়ট ওয়েব':<20} {'এন্ট্রি':<12}\n"
+        preview += f"{'#':<4} {'সিম্বল':<12} {'এলিয়ট ওয়েব':<18} {'সাব-ওয়েব':<15}\n"
         preview += "-" * 55 + "\n"
 
         for i, row in enumerate(self.current_data):
             symbol = row[0][:12] if len(row[0]) > 12 else row[0]
-            wave = row[1][:20] if len(row[1]) > 20 else row[1]
-            entry = row[3][:12] if len(row[3]) > 12 else row[3]
-            preview += f"{i+1:<4} {symbol:<12} {wave:<20} {entry:<12}\n"
+            wave = row[1][:18] if len(row[1]) > 18 else row[1]
+            subwave = row[2][:15] if len(row[2]) > 15 else row[2]
+            preview += f"{i+1:<4} {symbol:<12} {wave:<18} {subwave:<15}\n"
 
         preview += "```"
         return preview
@@ -320,7 +312,7 @@ bot = StockDataBot()
 # ==================== HELPER FUNCTIONS ====================
 
 def fix_date_format(date_str):
-    """তারিখ ফরম্যাট ঠিক করা: 25-3-2026 -> 25-03-2026"""
+    """তারিখ ফরম্যাট ঠিক করা"""
     date_str = date_str.strip()
     pattern = r'^(\d{1,2})-(\d{1,2})-(\d{4})$'
     match = re.match(pattern, date_str)
@@ -336,50 +328,22 @@ def format_as_table(data, title):
     if not data:
         return f"📭 {title} - কোনো ডাটা নেই।"
 
-    # Column headers in Bengali
-    headers = ["#", "সিম্বল", "এলিয়ট ওয়েব", "সাব-ওয়েব", "এন্ট্রি", "স্টপ", "TP1", "TP2", "RRR", "স্কোর", "কনফিডেন্স", "অ্যাকশন"]
-
-    # Calculate column widths based on content
-    col_widths = [4]  # সিরিয়াল নম্বরের জন্য
-
-    # Calculate width for each column
-    for col_idx in range(1, len(headers)):
-        max_width = len(headers[col_idx])
-        for row in data:
-            if col_idx <= len(row):
-                cell_text = str(row[col_idx-1])[:30]
-                max_width = max(max_width, len(cell_text))
-        col_widths.append(min(max_width + 2, 20))
-
-    # Adjust some columns manually
-    col_widths[1] = min(col_widths[1], 12)   # সিম্বল
-    col_widths[2] = min(col_widths[2], 18)   # এলিয়ট ওয়েব
-    col_widths[3] = min(col_widths[3], 12)   # সাব-ওয়েব
-    col_widths[4] = min(col_widths[4], 12)   # এন্ট্রি
-    col_widths[5] = min(col_widths[5], 8)    # স্টপ
-    col_widths[6] = min(col_widths[6], 8)    # TP1
-    col_widths[7] = min(col_widths[7], 8)    # TP2
-    col_widths[8] = min(col_widths[8], 6)    # RRR
-    col_widths[9] = min(col_widths[9], 6)    # স্কোর
-    col_widths[10] = min(col_widths[10], 12) # কনফিডেন্স
-    col_widths[11] = min(col_widths[11], 15) # অ্যাকশন
-
-    # Create table
+    headers = ["#", "সিম্বল", "এলিয়ট ওয়েব", "সাব-ওয়েব", "এন্ট্রি", "স্টপ", "TP1", "TP2", "TP3", "RRR", "স্কোর", "ইনসাইট"]
+    
+    col_widths = [4, 12, 18, 15, 12, 8, 8, 8, 8, 6, 6, 20]
+    
     table = f"📊 **{title} - মোট {len(data)} টি রেকর্ড:**\n\n```\n"
-
-    # Header line
+    
     header_line = ""
     for i, header in enumerate(headers):
         header_line += f"{header:<{col_widths[i]}}"
     table += header_line + "\n"
-
-    # Separator line
+    
     separator = ""
     for width in col_widths:
         separator += "-" * width
     table += separator + "\n"
-
-    # Data rows
+    
     for i, row in enumerate(data):
         line = f"{i+1:<{col_widths[0]}}"
         
@@ -389,18 +353,17 @@ def format_as_table(data, title):
                 line += f"{cell:<{col_widths[col_idx]}}"
             else:
                 line += f"{'':<{col_widths[col_idx]}}"
-
+        
         table += line + "\n"
-
-        # Add separator every 10 rows
+        
         if (i + 1) % 10 == 0 and i + 1 < len(data):
             table += separator + "\n"
-
+    
     table += "```"
     return table
 
 def format_files_table(dates):
-    """ফাইলের তালিকা সুন্দর টেবিল আকারে দেখান"""
+    """ফাইলের তালিকা দেখান"""
     if not dates:
         return "📭 কোনো CSV ফাইল নেই।"
 
@@ -418,12 +381,12 @@ def format_files_table(dates):
     return table
 
 def get_search_results_table(results, search_symbol):
-    """সার্চ রেজাল্ট সুন্দর টেবিল আকারে দেখান"""
+    """সার্চ রেজাল্ট দেখান"""
     if not results:
         return f"❌ '{search_symbol}' কোনো ফাইলে পাওয়া যায়নি।"
 
-    headers = ["#", "তারিখ", "সিম্বল", "এলিয়ট ওয়েব", "এন্ট্রি", "অ্যাকশন"]
-    col_widths = [4, 12, 12, 20, 12, 15]
+    headers = ["#", "তারিখ", "সিম্বল", "এলিয়ট ওয়েব", "সাব-ওয়েব", "এন্ট্রি", "স্কোর"]
+    col_widths = [4, 12, 12, 18, 15, 12, 6]
 
     table = f"🔍 **'{search_symbol}' পাওয়া গেছে {len(results)} টি ফাইলে:**\n\n```\n"
 
@@ -437,9 +400,10 @@ def get_search_results_table(results, search_symbol):
         line = f"{i+1:<{col_widths[0]}}"
         line += f"{r['date'][:col_widths[1]]:<{col_widths[1]}}"
         line += f"{r['row'][0][:col_widths[2]]:<{col_widths[2]}}"
-        line += f"{r['row'][1][:col_widths[3]]:<{col_widths[3]}}"
-        line += f"{r['row'][3][:col_widths[4]]:<{col_widths[4]}}" if len(r['row']) > 3 else f"{'':<{col_widths[4]}}"
-        line += f"{r['row'][10][:col_widths[5]]:<{col_widths[5]}}" if len(r['row']) > 10 else f"{'':<{col_widths[5]}}"
+        line += f"{r['row'][1][:col_widths[3]]:<{col_widths[3]}}" if len(r['row']) > 1 else f"{'':<{col_widths[3]}}"
+        line += f"{r['row'][2][:col_widths[4]]:<{col_widths[4]}}" if len(r['row']) > 2 else f"{'':<{col_widths[4]}}"
+        line += f"{r['row'][3][:col_widths[5]]:<{col_widths[5]}}" if len(r['row']) > 3 else f"{'':<{col_widths[5]}}"
+        line += f"{r['row'][9][:col_widths[6]]:<{col_widths[6]}}" if len(r['row']) > 9 else f"{'':<{col_widths[6]}}"
         table += line + "\n"
 
     table += "```"
@@ -450,12 +414,11 @@ def get_search_results_table(results, search_symbol):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 **স্টক ডাটা বট - Hugging Face স্টোরেজ**\n\n"
-        "📝 **ডাটা যোগ করুন:**\n"
-        "CSV ফরম্যাটে ডাটা পাঠান (11টি কলাম):\n"
-        "`BDCOM,Impulse (Wave 4),Sub-wave C,25.80-26.30,24.90,27.50,29.00,1:1.8,72,High,Accumulate`\n\n"
+        "📝 **ডাটা যোগ করুন (11 কলাম):**\n"
+        "`ADVENT,Impulse (Up),Wave 5 of 3,13.8-14.2,13.2,15.0,16.0,17.5,1:2.5,68,মূল্য 13.0 টাকার নিচে ব্রেক করতে পারেনি...`\n\n"
         "**কলামের ক্রম:**\n"
         "1. symbol | 2. এলিয়ট ওয়েব | 3. সাব-ওয়েব | 4. এন্ট্রি | 5. স্টপ\n"
-        "6. TP1 | 7. TP2 | 8. RRR | 9. স্কোর | 10. কনফিডেন্স | 11. অ্যাকশন\n\n"
+        "6. TP1 | 7. TP2 | 8. TP3 | 9. RRR | 10. স্কোর | 11. কুইক ইনসাইট\n\n"
         "📚 **কমান্ড:**\n"
         "`/help` - সব কমান্ড দেখুন\n"
         "`/list` - আজকের ডাটা দেখুন\n"
@@ -475,10 +438,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📚 **স্টক ডাটা বট - সম্পূর্ণ গাইড**
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📝 **ডাটা যোগ করার নিয়ম**
+📝 **ডাটা যোগ করার নিয়ম (11 কলাম)**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-CSV ফরম্যাটে 11টি কলাম পাঠান:
-`BDCOM,Impulse (Wave 4),Sub-wave C,25.80-26.30,24.90,27.50,29.00,1:1.8,72,High,Accumulate`
+`ADVENT,Impulse (Up),Wave 5 of 3,13.8-14.2,13.2,15.0,16.0,17.5,1:2.5,68,মূল্য 13.0 টাকার নিচে ব্রেক করতে পারেনি...`
 
 **কলামের ক্রম:**
 1. symbol
@@ -488,26 +450,24 @@ CSV ফরম্যাটে 11টি কলাম পাঠান:
 5. স্টপ লস (টাকা)
 6. টেক প্রফিট ১ (টাকা)
 7. টেক প্রফিট ২ (টাকা)
-8. রিস্ক-রিওয়ার্ড অনুপাত (RRR)
-9. স্কোর (১০০ এর মধ্যে)
-10. কনফিডেন্স লেভেল
-11. অ্যাকশন রিকমেন্ডেশন
-
-💡 **টিপ:** কম ডাটা পাঠালে বাকি ফিল্ড খালি থাকবে।
+8. টেক প্রফিট ৩ (টাকা)
+9. রিস্ক-রিওয়ার্ড অনুপাত (RRR)
+10. স্কোর (১০০ এর মধ্যে)
+11. কুইক ইনসাইট
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📁 **ফাইল ম্যানেজমেন্ট**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 • `/files` - সব CSV ফাইলের তালিকা
 • `/view 25-03-2026` - নির্দিষ্ট ফাইল দেখুন
-• `/deletefile 25-03-2026` - ফাইল ডিলিট করুন
+• `/deletefile 25-03-2026` - ফাইল ডিলিট
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔍 **সিম্বল ম্যানেজমেন্ট**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 • `/symbols 25-03-2026` - ফাইলের সিম্বল দেখুন
-• `/deletesymbol 25-03-2026 BDCOM` - সিম্বল ডিলিট
-• `/search BDCOM` - সব ফাইলে সিম্বল খুঁজুন
+• `/deletesymbol 25-03-2026 ADVENT` - সিম্বল ডিলিট
+• `/search ADVENT` - সব ফাইলে সিম্বল খুঁজুন
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📊 **আজকের ডাটা**
@@ -515,12 +475,6 @@ CSV ফরম্যাটে 11টি কলাম পাঠান:
 • `/list` - আজকের ডাটা দেখুন
 • `/clear` - আজকের সব ডাটা মুছুন
 • `/yesclear` - ক্লিয়ার কনফার্ম
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-ℹ️ **অন্যান্য**
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• `/status` - বটের স্ট্যাটাস দেখুন
-• `/cancel` - চলমান অপারেশন বাতিল করুন
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📂 **স্টোরেজ লোকেশন**
@@ -541,14 +495,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(result)
     else:
         await update.message.reply_text(
-            "❌ CSV ফরম্যাটে ডাটা পাঠান। সাহায্যের জন্য `/help` দেখুন।\n\n"
-            "উদাহরণ (11 কলাম):\n"
-            "`BDCOM,Impulse (Wave 4),Sub-wave C,25.80-26.30,24.90,27.50,29.00,1:1.8,72,High,Accumulate`",
+            "❌ CSV ফরম্যাটে 11টি কলাম পাঠান। সাহায্যের জন্য `/help` দেখুন।\n\n"
+            "উদাহরণ:\n"
+            "`ADVENT,Impulse (Up),Wave 5 of 3,13.8-14.2,13.2,15.0,16.0,17.5,1:2.5,68,মূল্য 13.0 টাকার নিচে ব্রেক করতে পারেনি...`",
             parse_mode='Markdown'
         )
 
 async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """আজকের ডাটা সুন্দর টেবিল আকারে দেখান"""
     if not bot.current_data:
         await update.message.reply_text(f"📭 {bot.current_date} তারিখের কোনো ডাটা নেই।")
         return
@@ -575,7 +528,6 @@ async def yesclear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ আগে `/clear` দিন।", parse_mode='Markdown')
 
 async def files_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """সব CSV ফাইলের তালিকা টেবিল আকারে দেখান"""
     dates = hf_manager.get_all_csv_files()
 
     if not dates:
@@ -586,7 +538,6 @@ async def files_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(table, parse_mode='Markdown')
 
 async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """নির্দিষ্ট ফাইল সুন্দর টেবিল আকারে দেখান"""
     if not context.args:
         await update.message.reply_text("❌ তারিখ দিন। উদাহরণ: `/view 25-03-2026`")
         return
@@ -615,7 +566,6 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await status_msg.edit_text(f"📭 `{date}.csv` ফাইলটি খালি।", parse_mode='Markdown')
         return
 
-    # Check if first row is header
     start_idx = 0
     if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
         start_idx = 1
@@ -657,7 +607,6 @@ async def confirmdelete_command(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data['delete_file'] = None
 
 async def symbols_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ফাইলের সিম্বল লিস্ট দেখান"""
     date = fix_date_format(context.args[0]) if context.args else bot.current_date
     status_msg = await update.message.reply_text(f"⏳ `{date}.csv` ফাইল থেকে সিম্বল খুঁজছি...", parse_mode='Markdown')
 
@@ -706,7 +655,7 @@ async def symbols_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def deletesymbol_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 2:
         await update.message.reply_text(
-            "❌ তারিখ এবং সিম্বল দিন। উদাহরণ: `/deletesymbol 25-03-2026 BDCOM`",
+            "❌ তারিখ এবং সিম্বল দিন। উদাহরণ: `/deletesymbol 25-03-2026 ADVENT`",
             parse_mode='Markdown'
         )
         return
@@ -719,9 +668,8 @@ async def deletesymbol_command(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(msg)
 
 async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """সব ফাইলে সিম্বল খুঁজুন"""
     if not context.args:
-        await update.message.reply_text("❌ সিম্বল দিন। উদাহরণ: `/search BDCOM`")
+        await update.message.reply_text("❌ সিম্বল দিন। উদাহরণ: `/search ADVENT`")
         return
 
     search_symbol = context.args[0].upper()
