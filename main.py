@@ -75,21 +75,18 @@ class HuggingFaceManager:
             return []
 
     def read_csv_file(self, date):
-        """নির্দিষ্ট তারিখের CSV ফাইল পড়ুন - ফিক্সড"""
+        """নির্দিষ্ট তারিখের CSV ফাইল পড়ুন"""
         if not self.token:
             print("❌ No HF_TOKEN!")
             return None
 
-        # সঠিক পাথ - stock ফোল্ডার সহ
         filename = f"{self.folder}/{date}.csv"
         print(f"🔍 Looking for: {filename}")
 
         try:
-            # সব ফাইল লিস্ট করুন
             files = list_repo_files(self.repo_id, token=self.token, repo_type=self.repo_type)
             print(f"📁 Total files: {len(files)}")
             
-            # stock ফোল্ডারে ফাইল আছে কিনা চেক করুন
             if filename not in files:
                 print(f"❌ File not found: {filename}")
                 print(f"📁 Available stock files: {[f for f in files if f.startswith('stock/')][:10]}")
@@ -226,7 +223,7 @@ class StockDataBot:
         self.load_current_data()
 
     def load_current_data(self):
-        """আজকের ডাটা লোড করুন"""
+        """আজকের ডাটা লোড করুন - যদি না থাকে তাহলে সর্বশেষ ফাইল লোড করুন"""
         print(f"📂 Loading data for {self.current_date}...")
         data = hf_manager.read_csv_file(self.current_date)
         if data:
@@ -236,8 +233,24 @@ class StockDataBot:
             self.current_data = data[start_idx:]
             print(f"✅ Loaded {len(self.current_data)} records for {self.current_date}")
         else:
-            self.current_data = []
-            print(f"⚠️ No data for {self.current_date}")
+            # আজকের ডাটা না থাকলে সর্বশেষ ফাইল লোড করুন
+            files = hf_manager.get_all_csv_files()
+            if files:
+                latest_date = files[0]
+                print(f"⚠️ No data for {self.current_date}, loading latest: {latest_date}")
+                data = hf_manager.read_csv_file(latest_date)
+                if data:
+                    start_idx = 0
+                    if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
+                        start_idx = 1
+                    self.current_data = data[start_idx:]
+                    print(f"✅ Loaded {len(self.current_data)} records from {latest_date}")
+                else:
+                    self.current_data = []
+                    print(f"⚠️ No data found")
+            else:
+                self.current_data = []
+                print(f"⚠️ No data for {self.current_date}")
 
     def parse_csv_line(self, line):
         """CSV লাইন পার্স করে 11টি কলামে রূপান্তর"""
@@ -665,7 +678,7 @@ async def files_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(table, parse_mode='Markdown')
 
 async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """নির্দিষ্ট তারিখের CSV ফাইল দেখান - মাঝারি নেভিগেশন"""
+    """নির্দিষ্ট তারিখের CSV ফাইল দেখান"""
     if not context.args:
         await update.message.reply_text(
             "❌ 📅 তারিখ দিন। উদাহরণ: `/view 25-03-2026` অথবা `/view 25-03-2026 2`\n\n"
