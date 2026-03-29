@@ -895,11 +895,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📈 50-59  : মধ্যম
 ⚠️ 40-49  : দুর্বল
 ❌ <40    : খুব দুর্বল
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📂 **স্টোরেজ লোকেশন**
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Hugging Face: `ahashanahmed/csv/stock/`
 """
     await update.message.reply_text(help_text, parse_mode='Markdown')
 
