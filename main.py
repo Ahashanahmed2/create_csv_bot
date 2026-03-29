@@ -6,6 +6,7 @@ import asyncio
 import io
 import tempfile
 import re
+from trade_analytics import add_trade_analytics_handlers
 from datetime import datetime
 from flask import Flask, jsonify
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -1436,6 +1437,9 @@ async def run_bot():
         await application.initialize()
         await application.start()
         await application.updater.start_polling()
+
+# ট্রেড অ্যানালাইটিক্স হ্যান্ডলার যোগ করুন
+add_trade_analytics_handlers(application)
 
         while True:
             await asyncio.sleep(1)
