@@ -1,4 +1,4 @@
-# trade_analytics.py - সম্পূর্ণ ট্রেডিং অ্যানালাইটিক্স (অটো ফাইল ক্রিয়েশন সহ)
+# trade_analytics.py - সম্পূর্ণ আপডেটেড ফাইল (সিম্বল ডিটেইল বাটন সহ)
 
 import os
 import csv
@@ -17,26 +17,23 @@ class TradeAnalytics:
         self.rd_file = os.path.join(data_dir, "rd.csv")
         self.sl_file = os.path.join(data_dir, "sl.csv")
         self.tp_file = os.path.join(data_dir, "tp.csv")
-        
+
         # CSV ফাইল চেক এবং তৈরি করুন
         self._ensure_csv_files()
 
     def _ensure_csv_files(self):
         """CSV ফাইলগুলো না থাকলে তৈরি করুন"""
-        # ফোল্ডার তৈরি করুন
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)
             print(f"✅ Created directory: {self.data_dir}")
-        
-        # হেডার ডিফাইন করুন
+
         headers = {
             self.rd_file: ['symbol', 'wave', 'subwave', 'entry', 'stop', 'tp1', 'tp2', 'tp3', 'rrr', 'score', 'insight'],
             self.ed_file: ['symbol', 'wave', 'subwave', 'entry', 'stop', 'tp1', 'tp2', 'tp3', 'rrr', 'score', 'insight', 'entry_date'],
             self.sl_file: ['symbol', 'wave', 'subwave', 'entry', 'stop', 'tp1', 'tp2', 'tp3', 'rrr', 'score', 'insight', 'sl_date'],
             self.tp_file: ['symbol', 'wave', 'subwave', 'entry', 'stop', 'tp1', 'tp2', 'tp3', 'rrr', 'score', 'insight', 'tp1_date', 'tp1_gap', 'tp2_date', 'tp2_gap', 'tp3_date', 'tp3_gap']
         }
-        
-        # প্রতিটি ফাইল চেক করে তৈরি করুন
+
         for filepath, header in headers.items():
             if not os.path.exists(filepath):
                 try:
@@ -58,17 +55,6 @@ class TradeAnalytics:
         except Exception as e:
             print(f"Error reading {filepath}: {e}")
             return None
-
-    def write_csv_row(self, filepath: str, row: List[str]):
-        """CSV ফাইলে নতুন রো যোগ করুন"""
-        try:
-            with open(filepath, 'a', newline='', encoding='utf-8-sig') as f:
-                writer = csv.writer(f)
-                writer.writerow(row)
-            return True
-        except Exception as e:
-            print(f"Error writing to {filepath}: {e}")
-            return False
 
     def get_score_emoji(self, score: str) -> str:
         """স্কোর অনুযায়ী ইমোজি"""
@@ -117,7 +103,6 @@ class TradeAnalytics:
         score_emoji = self.get_score_emoji(stock['score'])
         score_text = self.get_score_text(stock['score'])
 
-        # ওয়েভ টেক্সট তৈরি
         wave = stock.get('wave', '-')
         subwave = stock.get('subwave', '')
         if subwave and subwave != '-':
@@ -125,7 +110,6 @@ class TradeAnalytics:
         else:
             wave_display = wave
 
-        # ইনসাইট লাইন ব্রেক (৭০ অক্ষর)
         insight = stock.get('insight', 'কোনো ইনসাইট নেই')
         insight_lines = []
         for j in range(0, len(insight), 70):
@@ -171,7 +155,6 @@ class TradeAnalytics:
                     'score': row[9] if len(row) > 9 else "-",
                     'insight': row[10] if len(row) > 10 else "কোনো ইনসাইট নেই"
                 })
-
         return active_trades
 
     def get_tp_list(self) -> List[Dict]:
@@ -460,7 +443,6 @@ def get_main_keyboard():
 
 
 def get_wave_keyboard():
-    """ওয়েভ কীবোর্ড"""
     keyboard = [
         [
             InlineKeyboardButton("🌊 ইম্পালস ওয়েভ", callback_data="wave_impulse"),
@@ -475,7 +457,6 @@ def get_wave_keyboard():
 
 
 def get_gap_keyboard():
-    """গ্যাপ কীবোর্ড"""
     keyboard = [
         [
             InlineKeyboardButton("0-5 দিন", callback_data="gap_0-5"),
@@ -494,7 +475,6 @@ def get_gap_keyboard():
 
 
 def get_tp_level_keyboard():
-    """টিপি লেভেল কীবোর্ড"""
     keyboard = [
         [
             InlineKeyboardButton("🎯 TP1", callback_data="tp_level_1"),
@@ -510,7 +490,6 @@ def get_tp_level_keyboard():
 
 
 def get_score_keyboard():
-    """স্কোর কীবোর্ড"""
     keyboard = [
         [
             InlineKeyboardButton("💎 85-100", callback_data="score_excellent"),
@@ -532,60 +511,240 @@ def get_score_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 
-def get_pagination_keyboard(data_type: str, page: int, total_pages: int, items_per_page: int = 3):
-    """পেজিনেশন কীবোর্ড"""
-    keyboard = []
+# ==================== সিম্বল ডিটেইল ফাংশন ====================
 
+async def show_symbol_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """সিম্বল ডিটেইল দেখান - কার্ড স্টাইলে"""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    parts = data.split('_')
+    
+    if parts[0] == "symdetail":
+        symbol = parts[1]
+        list_type = parts[2]  # active, tp, sl
+        
+        if list_type == "active":
+            trades = trade_analytics.get_active_trades()
+            found = [t for t in trades if t['symbol'] == symbol]
+        elif list_type == "tp":
+            tp_list = trade_analytics.get_tp_list()
+            found = [t for t in tp_list if t['symbol'] == symbol]
+        elif list_type == "sl":
+            sl_list = trade_analytics.get_sl_list()
+            found = [s for s in sl_list if s['symbol'] == symbol]
+        else:
+            found = []
+        
+        if not found:
+            await query.edit_message_text(f"❌ '{symbol}' সিম্বলটি পাওয়া যায়নি।")
+            return
+        
+        stock = found[0]
+        result = trade_analytics.format_stock_card(stock, 1)
+        
+        if list_type == "tp" and stock.get('tp_level'):
+            result += f"\n🎯 **TP{stock['tp_level']} হিট**\n"
+        elif list_type == "sl" and stock.get('sl_date'):
+            result += f"\n🛑 **স্টপ লস হিট**: {stock['sl_date']}\n"
+        
+        keyboard = [[InlineKeyboardButton("◀️ লিস্টে ফিরুন", callback_data=f"back_to_{list_type}")]]
+        await query.edit_message_text(result, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+
+async def back_to_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """লিস্টে ফিরে যান"""
+    query = update.callback_query
+    await query.answer()
+    
+    list_type = query.data.replace("back_to_", "")
+    
+    if list_type == "active":
+        await show_active_trades(query, 1)
+    elif list_type == "tp":
+        await show_tp_list(query, 1)
+    elif list_type == "sl":
+        await show_sl_list(query, 1)
+    else:
+        await query.edit_message_text(
+            "📊 **ট্রেডিং অ্যানালাইটিক্স মেনু**\n\nনিচের বাটন থেকে আপনার পছন্দের অপশন নির্বাচন করুন:",
+            reply_markup=get_main_keyboard(),
+            parse_mode='Markdown'
+        )
+
+
+# ==================== আপডেটেড লিস্ট ফাংশন ====================
+
+async def show_active_trades(query, page: int = 1, items_per_page: int = 3):
+    """সক্রিয় ট্রেড দেখান - সিম্বল বাটন সহ"""
+    trades = trade_analytics.get_active_trades()
+
+    if not trades:
+        await query.edit_message_text(
+            "📭 **সক্রিয় ট্রেড** - কোনো ট্রেড নেই।",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ ব্যাক", callback_data="back_main")]]),
+            parse_mode='Markdown'
+        )
+        return
+
+    total = len(trades)
+    total_pages = (total + items_per_page - 1) // items_per_page
+    if page > total_pages:
+        page = total_pages
+
+    start = (page - 1) * items_per_page
+    end = min(start + items_per_page, total)
+    page_trades = trades[start:end]
+
+    result = f"📈 **সক্রিয় ট্রেড**  |  📋 {total} টি  |  📄 পৃষ্ঠা {page}/{total_pages}\n\n"
+    keyboard = []
+    
+    for i, trade in enumerate(page_trades):
+        serial = start + i + 1
+        keyboard.append([InlineKeyboardButton(
+            f"#{serial} {trade['symbol']} {trade_analytics.get_score_emoji(trade['score'])}", 
+            callback_data=f"symdetail_{trade['symbol']}_active"
+        )])
+        result += f"`{serial}. {trade['symbol']}` → ওয়েভ: {trade['wave']} | স্কোর: {trade['score']}/100\n"
+    
+    result += "\n💡 **সিম্বলে ক্লিক করুন বিস্তারিত দেখতে**"
+    
     nav_row = []
     if page > 1:
-        nav_row.append(InlineKeyboardButton("◀️ পূর্ববর্তী", callback_data=f"{data_type}_page_{page-1}"))
-    nav_row.append(InlineKeyboardButton(f"📄 {page}/{total_pages}", callback_data=f"{data_type}_info"))
+        nav_row.append(InlineKeyboardButton("◀️ পূর্ববর্তী", callback_data=f"active_list_page_{page-1}"))
     if page < total_pages:
-        nav_row.append(InlineKeyboardButton("পরবর্তী ▶️", callback_data=f"{data_type}_page_{page+1}"))
-    keyboard.append(nav_row)
-
+        nav_row.append(InlineKeyboardButton("পরবর্তী ▶️", callback_data=f"active_list_page_{page+1}"))
+    if nav_row:
+        keyboard.append(nav_row)
     keyboard.append([InlineKeyboardButton("◀️ মেনুতে ফিরুন", callback_data="back_main")])
-    return InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text(result, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 
-# ==================== ইনলাইন হ্যান্ডলার ====================
+async def show_tp_list(query, page: int = 1, items_per_page: int = 3):
+    """টেক প্রফিট লিস্ট দেখান - সিম্বল বাটন সহ"""
+    tp_list = trade_analytics.get_tp_list()
+
+    if not tp_list:
+        await query.edit_message_text(
+            "📭 **টেক প্রফিট লিস্ট** - কোনো টিপি রেকর্ড নেই।",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ ব্যাক", callback_data="back_main")]]),
+            parse_mode='Markdown'
+        )
+        return
+
+    total = len(tp_list)
+    total_pages = (total + items_per_page - 1) // items_per_page
+    if page > total_pages:
+        page = total_pages
+
+    start = (page - 1) * items_per_page
+    end = min(start + items_per_page, total)
+    page_tps = tp_list[start:end]
+
+    result = f"✅ **টেক প্রফিট লিস্ট**  |  📋 {total} টি  |  📄 পৃষ্ঠা {page}/{total_pages}\n\n"
+    keyboard = []
+    
+    for i, tp in enumerate(page_tps):
+        serial = start + i + 1
+        keyboard.append([InlineKeyboardButton(
+            f"#{serial} {tp['symbol']} 🎯TP{tp['tp_level']}", 
+            callback_data=f"symdetail_{tp['symbol']}_tp"
+        )])
+        result += f"`{serial}. {tp['symbol']}` → TP{tp['tp_level']} হিট | স্কোর: {tp['score']}/100\n"
+    
+    result += "\n💡 **সিম্বলে ক্লিক করুন বিস্তারিত দেখতে**"
+    
+    nav_row = []
+    if page > 1:
+        nav_row.append(InlineKeyboardButton("◀️ পূর্ববর্তী", callback_data=f"tp_list_page_{page-1}"))
+    if page < total_pages:
+        nav_row.append(InlineKeyboardButton("পরবর্তী ▶️", callback_data=f"tp_list_page_{page+1}"))
+    if nav_row:
+        keyboard.append(nav_row)
+    keyboard.append([InlineKeyboardButton("◀️ মেনুতে ফিরুন", callback_data="back_main")])
+
+    await query.edit_message_text(result, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+
+async def show_sl_list(query, page: int = 1, items_per_page: int = 3):
+    """স্টপ লস লিস্ট দেখান - সিম্বল বাটন সহ"""
+    sl_list = trade_analytics.get_sl_list()
+
+    if not sl_list:
+        await query.edit_message_text(
+            "📭 **স্টপ লস লিস্ট** - কোনো এসএল রেকর্ড নেই।",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ ব্যাক", callback_data="back_main")]]),
+            parse_mode='Markdown'
+        )
+        return
+
+    total = len(sl_list)
+    total_pages = (total + items_per_page - 1) // items_per_page
+    if page > total_pages:
+        page = total_pages
+
+    start = (page - 1) * items_per_page
+    end = min(start + items_per_page, total)
+    page_sls = sl_list[start:end]
+
+    result = f"⚠️ **স্টপ লস লিস্ট**  |  📋 {total} টি  |  📄 পৃষ্ঠা {page}/{total_pages}\n\n"
+    keyboard = []
+    
+    for i, sl in enumerate(page_sls):
+        serial = start + i + 1
+        keyboard.append([InlineKeyboardButton(
+            f"#{serial} {sl['symbol']} 🛑", 
+            callback_data=f"symdetail_{sl['symbol']}_sl"
+        )])
+        result += f"`{serial}. {sl['symbol']}` → তারিখ: {sl['sl_date']} | স্কোর: {sl['score']}/100\n"
+    
+    result += "\n💡 **সিম্বলে ক্লিক করুন বিস্তারিত দেখতে**"
+    
+    nav_row = []
+    if page > 1:
+        nav_row.append(InlineKeyboardButton("◀️ পূর্ববর্তী", callback_data=f"sl_list_page_{page-1}"))
+    if page < total_pages:
+        nav_row.append(InlineKeyboardButton("পরবর্তী ▶️", callback_data=f"sl_list_page_{page+1}"))
+    if nav_row:
+        keyboard.append(nav_row)
+    keyboard.append([InlineKeyboardButton("◀️ মেনুতে ফিরুন", callback_data="back_main")])
+
+    await query.edit_message_text(result, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+
+# ==================== বাকি হ্যান্ডলার ফাংশন (অপরিবর্তিত) ====================
 
 trade_analytics = TradeAnalytics()
 
 
 async def trade_menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ট্রেডিং মেনু দেখান"""
     await update.message.reply_text(
-        "📊 **ট্রেডিং অ্যানালাইটিক্স মেনু**\n\n"
-        "নিচের বাটন থেকে আপনার পছন্দের অপশন নির্বাচন করুন:",
+        "📊 **ট্রেডিং অ্যানালাইটিক্স মেনু**\n\nনিচের বাটন থেকে আপনার পছন্দের অপশন নির্বাচন করুন:",
         reply_markup=get_main_keyboard(),
         parse_mode='Markdown'
     )
 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ক্যালব্যাক কোয়েরি হ্যান্ডলার"""
+    """ক্যালব্যাক কোয়েরি হ্যান্ডলার - লিস্ট পেজিনেশন এবং মেনু"""
     query = update.callback_query
     await query.answer()
-
     data = query.data
 
-    # মেনু ফিরুন
     if data == "back_main":
         await query.edit_message_text(
-            "📊 **ট্রেডিং অ্যানালাইটিক্স মেনু**\n\n"
-            "নিচের বাটন থেকে আপনার পছন্দের অপশন নির্বাচন করুন:",
+            "📊 **ট্রেডিং অ্যানালাইটিক্স মেনু**\n\nনিচের বাটন থেকে আপনার পছন্দের অপশন নির্বাচন করুন:",
             reply_markup=get_main_keyboard(),
             parse_mode='Markdown'
         )
         return
 
-    # পারফরম্যান্স
     if data == "perf_main":
         await show_performance_report(query)
         return
 
-    # অ্যাক্টিভ ট্রেড
     if data.startswith("active_list"):
         page = 1
         if data.startswith("active_list_page_"):
@@ -593,7 +752,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_active_trades(query, page)
         return
 
-    # টিপি লিস্ট
     if data.startswith("tp_list"):
         page = 1
         if data.startswith("tp_list_page_"):
@@ -601,7 +759,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_tp_list(query, page)
         return
 
-    # এসএল লিস্ট
     if data.startswith("sl_list"):
         page = 1
         if data.startswith("sl_list_page_"):
@@ -609,84 +766,67 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_sl_list(query, page)
         return
 
-    # ওয়েভ মেনু
     if data == "wave_menu":
         await query.edit_message_text(
-            "🌊 **ওয়েভ অ্যানালাইটিক্স**\n\n"
-            "ওয়েভ টাইপ নির্বাচন করুন:",
+            "🌊 **ওয়েভ অ্যানালাইটিক্স**\n\nওয়েভ টাইপ নির্বাচন করুন:",
             reply_markup=get_wave_keyboard(),
             parse_mode='Markdown'
         )
         return
 
-    # ওয়েভ ডিটেইল
     if data in ["wave_impulse", "wave_corrective", "wave_compare"]:
         await show_wave_analysis(query, data)
         return
 
-    # গ্যাপ মেনু
     if data == "gap_menu":
         await query.edit_message_text(
-            "⏱️ **গ্যাপ অ্যানালাইটিক্স**\n\n"
-            "গ্যাপ রেঞ্জ নির্বাচন করুন:",
+            "⏱️ **গ্যাপ অ্যানালাইটিক্স**\n\nগ্যাপ রেঞ্জ নির্বাচন করুন:",
             reply_markup=get_gap_keyboard(),
             parse_mode='Markdown'
         )
         return
 
-    # গ্যাপ ডিটেইল
     if data.startswith("gap_"):
         await show_gap_analysis(query, data)
         return
 
-    # টিপি লেভেল মেনু
     if data == "tp_level_menu":
         await query.edit_message_text(
-            "🎯 **টিপি লেভেল অ্যানালাইটিক্স**\n\n"
-            "টিপি লেভেল নির্বাচন করুন:",
+            "🎯 **টিপি লেভেল অ্যানালাইটিক্স**\n\nটিপি লেভেল নির্বাচন করুন:",
             reply_markup=get_tp_level_keyboard(),
             parse_mode='Markdown'
         )
         return
 
-    # টিপি লেভেল ডিটেইল
     if data in ["tp_level_1", "tp_level_2", "tp_level_3", "tp_level_compare"]:
         await show_tp_level_analysis(query, data)
         return
 
-    # স্কোর মেনু
     if data == "score_menu":
         await query.edit_message_text(
-            "⭐ **স্কোর অ্যানালাইটিক্স**\n\n"
-            "স্কোর রেঞ্জ নির্বাচন করুন:",
+            "⭐ **স্কোর অ্যানালাইটিক্স**\n\nস্কোর রেঞ্জ নির্বাচন করুন:",
             reply_markup=get_score_keyboard(),
             parse_mode='Markdown'
         )
         return
 
-    # স্কোর ডিটেইল
     if data.startswith("score_"):
         await show_score_analysis(query, data)
         return
 
-    # সম্পূর্ণ রিপোর্ট
     if data == "full_report":
         await show_full_report(query)
         return
 
-    # সিম্বল সার্চ
     if data == "search_symbol":
         await query.edit_message_text(
-            "🔍 **সিম্বল সার্চ**\n\n"
-            "সিম্বল লিখুন: /searchsymbol [সিম্বল]\n\n"
-            "উদাহরণ: `/searchsymbol ADVENT`",
+            "🔍 **সিম্বল সার্চ**\n\nসিম্বল লিখুন: `/searchsymbol [সিম্বল]`\n\nউদাহরণ: `/searchsymbol ADVENT`",
             parse_mode='Markdown'
         )
         return
 
 
 async def show_performance_report(query):
-    """পারফরম্যান্স রিপোর্ট দেখান"""
     active = len(trade_analytics.get_active_trades())
     tp_list = trade_analytics.get_tp_list()
     sl_list = trade_analytics.get_sl_list()
@@ -731,201 +871,61 @@ async def show_performance_report(query):
 """
 
     keyboard = [[InlineKeyboardButton("◀️ মেনুতে ফিরুন", callback_data="back_main")]]
-
-    await query.edit_message_text(
-        report,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
-    )
-
-
-async def show_active_trades(query, page: int = 1, items_per_page: int = 3):
-    """সক্রিয় ট্রেড দেখান - কার্ড স্টাইলে"""
-    trades = trade_analytics.get_active_trades()
-
-    if not trades:
-        await query.edit_message_text(
-            "📭 **সক্রিয় ট্রেড** - কোনো ট্রেড নেই।",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ ব্যাক", callback_data="back_main")]]),
-            parse_mode='Markdown'
-        )
-        return
-
-    total = len(trades)
-    total_pages = (total + items_per_page - 1) // items_per_page
-
-    if page > total_pages:
-        page = total_pages
-
-    start = (page - 1) * items_per_page
-    end = min(start + items_per_page, total)
-    page_trades = trades[start:end]
-
-    result = f"📈 **সক্রিয় ট্রেড**  |  📋 {total} টি  |  📄 পৃষ্ঠা {page}/{total_pages}\n"
-
-    for i, trade in enumerate(page_trades):
-        serial = start + i + 1
-        result += trade_analytics.format_stock_card(trade, serial)
-
-    await query.edit_message_text(
-        result,
-        reply_markup=get_pagination_keyboard("active_list", page, total_pages, items_per_page),
-        parse_mode='Markdown'
-    )
-
-
-async def show_tp_list(query, page: int = 1, items_per_page: int = 3):
-    """টেক প্রফিট লিস্ট দেখান - কার্ড স্টাইলে"""
-    tp_list = trade_analytics.get_tp_list()
-
-    if not tp_list:
-        await query.edit_message_text(
-            "📭 **টেক প্রফিট লিস্ট** - কোনো টিপি রেকর্ড নেই।",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ ব্যাক", callback_data="back_main")]]),
-            parse_mode='Markdown'
-        )
-        return
-
-    total = len(tp_list)
-    total_pages = (total + items_per_page - 1) // items_per_page
-
-    if page > total_pages:
-        page = total_pages
-
-    start = (page - 1) * items_per_page
-    end = min(start + items_per_page, total)
-    page_tps = tp_list[start:end]
-
-    result = f"✅ **টেক প্রফিট লিস্ট**  |  📋 {total} টি  |  📄 পৃষ্ঠা {page}/{total_pages}\n"
-
-    for i, tp in enumerate(page_tps):
-        serial = start + i + 1
-        result += trade_analytics.format_stock_card(tp, serial)
-        result += f"\n🎯 **TP{tp['tp_level']} হিট**\n"
-
-    await query.edit_message_text(
-        result,
-        reply_markup=get_pagination_keyboard("tp_list", page, total_pages, items_per_page),
-        parse_mode='Markdown'
-    )
-
-
-async def show_sl_list(query, page: int = 1, items_per_page: int = 3):
-    """স্টপ লস লিস্ট দেখান - কার্ড স্টাইলে"""
-    sl_list = trade_analytics.get_sl_list()
-
-    if not sl_list:
-        await query.edit_message_text(
-            "📭 **স্টপ লস লিস্ট** - কোনো এসএল রেকর্ড নেই।",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ ব্যাক", callback_data="back_main")]]),
-            parse_mode='Markdown'
-        )
-        return
-
-    total = len(sl_list)
-    total_pages = (total + items_per_page - 1) // items_per_page
-
-    if page > total_pages:
-        page = total_pages
-
-    start = (page - 1) * items_per_page
-    end = min(start + items_per_page, total)
-    page_sls = sl_list[start:end]
-
-    result = f"⚠️ **স্টপ লস লিস্ট**  |  📋 {total} টি  |  📄 পৃষ্ঠা {page}/{total_pages}\n"
-
-    for i, sl in enumerate(page_sls):
-        serial = start + i + 1
-        result += trade_analytics.format_stock_card(sl, serial)
-        result += f"\n🛑 **স্টপ লস হিট**\n"
-
-    await query.edit_message_text(
-        result,
-        reply_markup=get_pagination_keyboard("sl_list", page, total_pages, items_per_page),
-        parse_mode='Markdown'
-    )
+    await query.edit_message_text(report, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 
 async def show_wave_analysis(query, data):
-    """ওয়েভ অ্যানালাইসিস দেখান"""
     wave_stats = trade_analytics.get_wave_stats()
 
     if data == "wave_impulse":
         total = wave_stats['impulse']['tp'] + wave_stats['impulse']['sl']
         win_rate = (wave_stats['impulse']['tp'] / total * 100) if total > 0 else 0
-
         result = f"""
 🌊 **ইম্পালস ওয়েভ অ্যানালাইসিস**
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 মোট ট্রেড: {total} টি
+✅ টেক প্রফিট: {wave_stats['impulse']['tp']} টি
+❌ স্টপ লস: {wave_stats['impulse']['sl']} টি
+📈 সাকসেস রেট: {win_rate:.1f}%
 
-📊 **মোট ট্রেড:** {total} টি
-✅ **টেক প্রফিট:** {wave_stats['impulse']['tp']} টি
-❌ **স্টপ লস:** {wave_stats['impulse']['sl']} টি
-📈 **সাকসেস রেট:** {win_rate:.1f}%
-
-💡 **সেরা সিম্বল:** {', '.join(wave_stats['impulse']['tp_symbols'][:5]) if wave_stats['impulse']['tp_symbols'] else 'N/A'}
-
-⚠️ **সাবধান সিম্বল:** {', '.join(wave_stats['impulse']['sl_symbols'][:3]) if wave_stats['impulse']['sl_symbols'] else 'N/A'}
+💡 সেরা সিম্বল: {', '.join(wave_stats['impulse']['tp_symbols'][:5]) if wave_stats['impulse']['tp_symbols'] else 'N/A'}
+⚠️ সাবধান সিম্বল: {', '.join(wave_stats['impulse']['sl_symbols'][:3]) if wave_stats['impulse']['sl_symbols'] else 'N/A'}
 """
 
     elif data == "wave_corrective":
         total = wave_stats['corrective']['tp'] + wave_stats['corrective']['sl']
         win_rate = (wave_stats['corrective']['tp'] / total * 100) if total > 0 else 0
-
         result = f"""
 📉 **করেকটিভ ওয়েভ অ্যানালাইসিস**
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 মোট ট্রেড: {total} টি
+✅ টেক প্রফিট: {wave_stats['corrective']['tp']} টি
+❌ স্টপ লস: {wave_stats['corrective']['sl']} টি
+📈 সাকসেস রেট: {win_rate:.1f}%
 
-📊 **মোট ট্রেড:** {total} টি
-✅ **টেক প্রফিট:** {wave_stats['corrective']['tp']} টি
-❌ **স্টপ লস:** {wave_stats['corrective']['sl']} টি
-📈 **সাকসেস রেট:** {win_rate:.1f}%
-
-💡 **সেরা সিম্বল:** {', '.join(wave_stats['corrective']['tp_symbols'][:5]) if wave_stats['corrective']['tp_symbols'] else 'N/A'}
-
-⚠️ **সাবধান সিম্বল:** {', '.join(wave_stats['corrective']['sl_symbols'][:3]) if wave_stats['corrective']['sl_symbols'] else 'N/A'}
+💡 সেরা সিম্বল: {', '.join(wave_stats['corrective']['tp_symbols'][:5]) if wave_stats['corrective']['tp_symbols'] else 'N/A'}
+⚠️ সাবধান সিম্বল: {', '.join(wave_stats['corrective']['sl_symbols'][:3]) if wave_stats['corrective']['sl_symbols'] else 'N/A'}
 """
 
-    else:  # wave_compare
+    else:
         impulse_total = wave_stats['impulse']['tp'] + wave_stats['impulse']['sl']
         corrective_total = wave_stats['corrective']['tp'] + wave_stats['corrective']['sl']
-
         impulse_rate = (wave_stats['impulse']['tp'] / impulse_total * 100) if impulse_total > 0 else 0
         corrective_rate = (wave_stats['corrective']['tp'] / corrective_total * 100) if corrective_total > 0 else 0
-
         result = f"""
 📊 **ওয়েভ কম্পেয়ার**
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🌊 ইম্পালস ওয়েভ: TP {wave_stats['impulse']['tp']} | SL {wave_stats['impulse']['sl']} | সাকসেস: {impulse_rate:.1f}%
+📉 করেকটিভ ওয়েভ: TP {wave_stats['corrective']['tp']} | SL {wave_stats['corrective']['sl']} | সাকসেস: {corrective_rate:.1f}%
 
-🌊 **ইম্পালস ওয়েভ:**
-• টিপি: {wave_stats['impulse']['tp']}
-• এসএল: {wave_stats['impulse']['sl']}
-• সাকসেস: {impulse_rate:.1f}%
-
-📉 **করেকটিভ ওয়েভ:**
-• টিপি: {wave_stats['corrective']['tp']}
-• এসএল: {wave_stats['corrective']['sl']}
-• সাকসেস: {corrective_rate:.1f}%
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-🏆 **সেরা ওয়েভ:** {'ইম্পালস' if impulse_rate >= corrective_rate else 'করেকটিভ'}
+🏆 সেরা ওয়েভ: {'ইম্পালস' if impulse_rate >= corrective_rate else 'করেকটিভ'}
 """
 
-    await query.edit_message_text(
-        result,
-        reply_markup=get_wave_keyboard(),
-        parse_mode='Markdown'
-    )
+    await query.edit_message_text(result, reply_markup=get_wave_keyboard(), parse_mode='Markdown')
 
 
 async def show_gap_analysis(query, data):
-    """গ্যাপ অ্যানালাইসিস দেখান"""
     gap_stats = trade_analytics.get_gap_stats()
-
     gap_map = {
         'gap_0-5': ('0-5 দিন', '0-5'),
         'gap_6-10': ('6-10 দিন', '6-10'),
@@ -943,122 +943,77 @@ async def show_gap_analysis(query, data):
     result = f"""
 ⏱️ **গ্যাপ অ্যানালাইসিস - {gap_name}**
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 মোট ট্রেড: {total} টি
+✅ টেক প্রফিট: {stats['tp']} টি
+❌ স্টপ লস: {stats['sl']} টি
+📈 সাকসেস রেট: {win_rate:.1f}%
 
-📊 **মোট ট্রেড:** {total} টি
-✅ **টেক প্রফিট:** {stats['tp']} টি
-❌ **স্টপ লস:** {stats['sl']} টি
-📈 **সাকসেস রেট:** {win_rate:.1f}%
+💡 টিপি সিম্বল: {', '.join(stats['tp_symbols'][:5]) if stats['tp_symbols'] else 'N/A'}
+⚠️ এসএল সিম্বল: {', '.join(stats['sl_symbols'][:3]) if stats['sl_symbols'] else 'N/A'}
 
-💡 **টিপি সিম্বল:** {', '.join(stats['tp_symbols'][:5]) if stats['tp_symbols'] else 'N/A'}
-
-⚠️ **এসএল সিম্বল:** {', '.join(stats['sl_symbols'][:3]) if stats['sl_symbols'] else 'N/A'}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-📊 **বিশ্লেষণ:** {get_gap_analysis_text(gap_key, win_rate)}
+📊 বিশ্লেষণ: {get_gap_analysis_text(gap_key, win_rate)}
 """
 
-    await query.edit_message_text(
-        result,
-        reply_markup=get_gap_keyboard(),
-        parse_mode='Markdown'
-    )
+    await query.edit_message_text(result, reply_markup=get_gap_keyboard(), parse_mode='Markdown')
 
 
 async def show_tp_level_analysis(query, data):
-    """টিপি লেভেল অ্যানালাইসিস দেখান"""
     tp_stats = trade_analytics.get_tp_level_stats()
 
     if data == "tp_level_1":
-        result = f"""
-🎯 **TP1 অ্যানালাইসিস**
+        result = f"""🎯 **TP1 অ্যানালাইসিস**
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 মোট TP1: {tp_stats['tp1']['count']} টি
 
-📊 **মোট TP1:** {tp_stats['tp1']['count']} টি
-
-💡 **টপ সিম্বল:**
+💡 টপ সিম্বল:
 """
         for i, sym in enumerate(tp_stats['tp1']['symbols_detail'][:10], 1):
             emoji = trade_analytics.get_score_emoji(sym['score'])
             result += f"{i}. {sym['symbol']} (স্কোর: {sym['score']}/100 {emoji})\n"
-
-        result += f"""
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-📈 **TP1 → TP2 রূপান্তর:** {round(tp_stats['tp2']['count'] / tp_stats['tp1']['count'] * 100, 1) if tp_stats['tp1']['count'] > 0 else 0}%
-"""
+        result += f"\n📈 TP1 → TP2 রূপান্তর: {round(tp_stats['tp2']['count'] / tp_stats['tp1']['count'] * 100, 1) if tp_stats['tp1']['count'] > 0 else 0}%"
 
     elif data == "tp_level_2":
-        result = f"""
-🎯 **TP2 অ্যানালাইসিস**
+        result = f"""🎯 **TP2 অ্যানালাইসিস**
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 মোট TP2: {tp_stats['tp2']['count']} টি
 
-📊 **মোট TP2:** {tp_stats['tp2']['count']} টি
-
-💡 **টপ সিম্বল:**
+💡 টপ সিম্বল:
 """
         for i, sym in enumerate(tp_stats['tp2']['symbols_detail'][:10], 1):
             emoji = trade_analytics.get_score_emoji(sym['score'])
             result += f"{i}. {sym['symbol']} (স্কোর: {sym['score']}/100 {emoji})\n"
-
-        result += f"""
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-📈 **TP2 → TP3 রূপান্তর:** {round(tp_stats['tp3']['count'] / tp_stats['tp2']['count'] * 100, 1) if tp_stats['tp2']['count'] > 0 else 0}%
-"""
+        result += f"\n📈 TP2 → TP3 রূপান্তর: {round(tp_stats['tp3']['count'] / tp_stats['tp2']['count'] * 100, 1) if tp_stats['tp2']['count'] > 0 else 0}%"
 
     elif data == "tp_level_3":
-        result = f"""
-🎯 **TP3 অ্যানালাইসিস**
+        result = f"""🎯 **TP3 অ্যানালাইসিস**
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 মোট TP3: {tp_stats['tp3']['count']} টি
 
-📊 **মোট TP3:** {tp_stats['tp3']['count']} টি
-
-💡 **টপ সিম্বল:**
+💡 টপ সিম্বল:
 """
         for i, sym in enumerate(tp_stats['tp3']['symbols_detail'][:10], 1):
             emoji = trade_analytics.get_score_emoji(sym['score'])
             result += f"{i}. {sym['symbol']} (স্কোর: {sym['score']}/100 {emoji})\n"
+        result += f"\n🏆 পারফেক্ট স্কোর: {tp_stats['tp3']['count']} টি সিম্বল সর্বোচ্চ TP3 হিট করেছে!"
 
-        result += f"""
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    else:
+        result = f"""📊 **টিপি লেভেল কম্পেয়ার**
 
-🏆 **পারফেক্ট স্কোর:** {tp_stats['tp3']['count']} টি সিম্বল সর্বোচ্চ TP3 হিট করেছে!
-"""
+🎯 TP1: {tp_stats['tp1']['count']} টি
+🎯 TP2: {tp_stats['tp2']['count']} টি
+🎯 TP3: {tp_stats['tp3']['count']} টি
 
-    else:  # tp_level_compare
-        result = f"""
-📊 **টিপি লেভেল কম্পেয়ার**
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-🎯 **TP1:** {tp_stats['tp1']['count']} টি
-🎯 **TP2:** {tp_stats['tp2']['count']} টি
-🎯 **TP3:** {tp_stats['tp3']['count']} টি
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-📈 **রূপান্তর হার:**
+📈 রূপান্তর হার:
 • TP1 → TP2: {round(tp_stats['tp2']['count'] / tp_stats['tp1']['count'] * 100, 1) if tp_stats['tp1']['count'] > 0 else 0}%
 • TP2 → TP3: {round(tp_stats['tp3']['count'] / tp_stats['tp2']['count'] * 100, 1) if tp_stats['tp2']['count'] > 0 else 0}%
 • TP1 → TP3: {round(tp_stats['tp3']['count'] / tp_stats['tp1']['count'] * 100, 1) if tp_stats['tp1']['count'] > 0 else 0}%
 """
 
-    await query.edit_message_text(
-        result,
-        reply_markup=get_tp_level_keyboard(),
-        parse_mode='Markdown'
-    )
+    await query.edit_message_text(result, reply_markup=get_tp_level_keyboard(), parse_mode='Markdown')
 
 
 async def show_score_analysis(query, data):
-    """স্কোর অ্যানালাইসিস দেখান"""
     score_stats = trade_analytics.get_score_stats()
-
     score_map = {
         'score_excellent': ('excellent', '💎 85-100'),
         'score_very_strong': ('very_strong', '🔥 80-84'),
@@ -1078,25 +1033,18 @@ async def show_score_analysis(query, data):
     result = f"""
 ⭐ **স্কোর অ্যানালাইসিস - {score_name}**
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 মোট ট্রেড: {total} টি
+✅ টেক প্রফিট: {stats['tp']} টি
+❌ স্টপ লস: {stats['sl']} টি
+📈 সাকসেস রেট: {win_rate:.1f}%
 
-📊 **মোট ট্রেড:** {total} টি
-✅ **টেক প্রফিট:** {stats['tp']} টি
-❌ **স্টপ লস:** {stats['sl']} টি
-📈 **সাকসেস রেট:** {win_rate:.1f}%
-
-💡 **সুপারিশ:** {get_score_recommendation(score_key, win_rate)}
+💡 সুপারিশ: {get_score_recommendation(score_key, win_rate)}
 """
 
-    await query.edit_message_text(
-        result,
-        reply_markup=get_score_keyboard(),
-        parse_mode='Markdown'
-    )
+    await query.edit_message_text(result, reply_markup=get_score_keyboard(), parse_mode='Markdown')
 
 
 async def show_full_report(query):
-    """সম্পূর্ণ রিপোর্ট দেখান"""
     active = len(trade_analytics.get_active_trades())
     tp_list = trade_analytics.get_tp_list()
     sl_list = trade_analytics.get_sl_list()
@@ -1116,56 +1064,47 @@ async def show_full_report(query):
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📈 **সারাংশ:**
+📈 সারাংশ:
 • সক্রিয় ট্রেড: {active} টি
 • টেক প্রফিট: {total_tp} টি
 • স্টপ লস: {total_sl} টি
 • জয়ের হার: {win_rate:.1f}%
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-🌊 **ওয়েভ অনুযায়ী:**
+🌊 ওয়েভ অনুযায়ী:
 • ইম্পালস: TP {wave_stats['impulse']['tp']} | SL {wave_stats['impulse']['sl']}
 • করেকটিভ: TP {wave_stats['corrective']['tp']} | SL {wave_stats['corrective']['sl']}
 
-⏱️ **গ্যাপ অনুযায়ী:**
+⏱️ গ্যাপ অনুযায়ী:
 • 0-5 দিন: TP {gap_stats['0-5']['tp']} | SL {gap_stats['0-5']['sl']}
 • 6-10 দিন: TP {gap_stats['6-10']['tp']} | SL {gap_stats['6-10']['sl']}
 • 11-15 দিন: TP {gap_stats['11-15']['tp']} | SL {gap_stats['11-15']['sl']}
 • 16-30 দিন: TP {gap_stats['16-30']['tp']} | SL {gap_stats['16-30']['sl']}
 • 30+ দিন: TP {gap_stats['30+']['tp']} | SL {gap_stats['30+']['sl']}
 
-🎯 **টিপি লেভেল:**
+🎯 টিপি লেভেল:
 • TP1: {tp_level_stats['tp1']['count']} টি
 • TP2: {tp_level_stats['tp2']['count']} টি
 • TP3: {tp_level_stats['tp3']['count']} টি
 
-⭐ **সেরা স্কোর রেঞ্জ:**
+⭐ সেরা স্কোর রেঞ্জ:
 • 85-100: TP {score_stats['excellent']['tp']} | SL {score_stats['excellent']['sl']}
 • 80-84: TP {score_stats['very_strong']['tp']} | SL {score_stats['very_strong']['sl']}
 • 70-79: TP {score_stats['strong']['tp']} | SL {score_stats['strong']['sl']}
 """
 
     keyboard = [[InlineKeyboardButton("◀️ মেনুতে ফিরুন", callback_data="back_main")]]
-
-    await query.edit_message_text(
-        report,
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode='Markdown'
-    )
+    await query.edit_message_text(report, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 
 async def search_symbol_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """সিম্বল সার্চ কমান্ড"""
     if not context.args:
         await update.message.reply_text(
-            "🔍 **সিম্বল সার্চ**\n\nসিম্বল লিখুন: /searchsymbol [সিম্বল]\n\nউদাহরণ: `/searchsymbol ADVENT`",
+            "🔍 **সিম্বল সার্চ**\n\nসিম্বল লিখুন: `/searchsymbol [সিম্বল]`\n\nউদাহরণ: `/searchsymbol ADVENT`",
             parse_mode='Markdown'
         )
         return
 
     symbol = context.args[0].upper()
-
     active = trade_analytics.get_active_trades()
     tp_list = trade_analytics.get_tp_list()
     sl_list = trade_analytics.get_sl_list()
@@ -1208,7 +1147,6 @@ async def search_symbol_command(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 def get_gap_analysis_text(gap_key: str, win_rate: float) -> str:
-    """গ্যাপ বিশ্লেষণ টেক্সট"""
     if win_rate >= 70:
         return "🔥 এই সময়ের মধ্যে টিপি হিটের সম্ভাবনা খুব বেশি। দ্রুত ট্রেড করার জন্য উপযুক্ত।"
     elif win_rate >= 50:
@@ -1220,7 +1158,6 @@ def get_gap_analysis_text(gap_key: str, win_rate: float) -> str:
 
 
 def get_score_recommendation(score_key: str, win_rate: float) -> str:
-    """স্কোর রিকমেন্ডেশন"""
     recommendations = {
         'excellent': "💎 এক্সট্রিম শক্তিশালী - ট্রেড করার জন্য সেরা সিম্বল",
         'very_strong': "🔥 খুব শক্তিশালী - ট্রেড করার জন্য উপযুক্ত",
@@ -1239,6 +1176,9 @@ def add_trade_analytics_handlers(application):
     """ট্রেড অ্যানালাইটিক্স হ্যান্ডলার যোগ করুন"""
     application.add_handler(CommandHandler("trademenu", trade_menu_command))
     application.add_handler(CommandHandler("searchsymbol", search_symbol_command))
-    application.add_handler(CallbackQueryHandler(handle_callback))
     
-    print("✅ Trade Analytics handlers added successfully")
+    application.add_handler(CallbackQueryHandler(handle_callback, pattern='^(?!symdetail_|back_to_)'))
+    application.add_handler(CallbackQueryHandler(show_symbol_detail, pattern='^symdetail_'))
+    application.add_handler(CallbackQueryHandler(back_to_list, pattern='^back_to_'))
+
+    print("✅ Trade Analytics handlers added successfully (with symbol detail buttons)")
