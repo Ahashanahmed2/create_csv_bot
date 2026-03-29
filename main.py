@@ -16,6 +16,11 @@ from huggingface_hub import HfApi, upload_file, list_repo_files, delete_file, hf
 from portfolio import PortfolioAnalyzer
 # Trade Analytics মডিউল ইম্পোর্ট করুন
 from trade_analytics import add_trade_analytics_handlers
+# Advanced Features মডিউল ইম্পোর্ট করুন
+from advanced_features import (
+    AdvancedFeatures, chart_command, compare_command, 
+    notify_command, setalert_command, backtest_command, export_command
+)
 
 app = Flask(__name__)
 
@@ -333,6 +338,9 @@ bot = StockDataBot()
 # পোর্টফোলিও অ্যানালাইজার তৈরি করুন
 portfolio_analyzer = PortfolioAnalyzer(hf_manager, bot)
 
+# Advanced Features অবজেক্ট
+advanced_features = AdvancedFeatures(hf_manager, bot)
+
 # ==================== HELPER FUNCTIONS ====================
 
 def fix_date_format(date_str):
@@ -388,6 +396,32 @@ def get_score_text(score):
             return "❌ খুব দুর্বল"
     except:
         return "⭐ সাধারণ"
+
+# ==================== ADVANCED FEATURES WRAPPERS ====================
+
+async def chart_command_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """চার্ট জেনারেট করুন - র‍্যাপার ফাংশন"""
+    await chart_command(update, context, hf_manager, bot)
+
+async def compare_command_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """কম্পেয়ার - র‍্যাপার ফাংশন"""
+    await compare_command(update, context, hf_manager, bot)
+
+async def notify_command_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """নোটিফিকেশন - র‍্যাপার ফাংশন"""
+    await notify_command(update, context)
+
+async def setalert_command_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """অ্যালার্ট সেট - র‍্যাপার ফাংশন"""
+    await setalert_command(update, context)
+
+async def backtest_command_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ব্যাকটেস্ট - র‍্যাপার ফাংশন"""
+    await backtest_command(update, context, hf_manager)
+
+async def export_command_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """এক্সপোর্ট - র‍্যাপার ফাংশন"""
+    await export_command(update, context, hf_manager)
 
 # ==================== PORTFOLIO HANDLERS WITH INLINE BUTTONS ====================
 
@@ -449,10 +483,8 @@ async def category_callback_handler(update: Update, context: ContextTypes.DEFAUL
     date = parts[1]
     page = int(parts[2]) if len(parts) > 2 else 1
 
-    # কন্টেক্সটে শেষ ভিউ সংরক্ষণ করুন
     context.user_data['last_view'] = {'category': category, 'date': date, 'page': page}
 
-    # ডাটা লোড করুন
     csv_data = hf_manager.read_csv_file(date)
 
     if csv_data is None:
@@ -475,7 +507,6 @@ async def category_callback_handler(update: Update, context: ContextTypes.DEFAUL
         await query.edit_message_text("❌ অ্যানালাইসিস করতে ব্যর্থ হয়েছে।")
         return
 
-    # ক্যাটাগরি অনুযায়ী ডাটা তৈরি
     if category == "vs":
         symbols_with_scores = list(zip(stats['very_strong']['symbols'], stats['very_strong']['scores']))
         title = "🔥 খুব শক্তিশালী সিম্বল (স্কোর 80+)"
@@ -520,7 +551,6 @@ async def symbol_detail_callback_handler(update: Update, context: ContextTypes.D
         date = parts[1]
         symbol = parts[2]
 
-        # ডাটা লোড করুন
         csv_data = hf_manager.read_csv_file(date)
 
         if csv_data is None:
@@ -581,7 +611,6 @@ async def back_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
     if parts[0] == "back":
         date = parts[1]
 
-        # কন্টেক্সট থেকে শেষ ক্যাটাগরি এবং পৃষ্ঠা নিন
         last_data = context.user_data.get('last_view', {})
         category = last_data.get('category', 'vs')
         page = last_data.get('page', 1)
@@ -660,7 +689,6 @@ async def special_command_callback_handler(update: Update, context: ContextTypes
     stats = portfolio_analyzer.analyze_portfolio(all_data)
 
     if command_type == "brrr":
-        # সেরা RRR দেখান
         best_rrr = {'value': 0, 'symbol': '', 'rrr': '', 'score': ''}
         for row in all_data:
             if len(row) > 8:
@@ -688,7 +716,6 @@ async def special_command_callback_handler(update: Update, context: ContextTypes
             await query.edit_message_text("❌ কোনো RRR ডাটা পাওয়া যায়নি।")
 
     elif command_type == "hscore":
-        # সর্বোচ্চ স্কোর দেখান
         highest = {'value': 0, 'symbol': '', 'score': ''}
         for row in all_data:
             if len(row) > 9:
@@ -716,7 +743,6 @@ async def special_command_callback_handler(update: Update, context: ContextTypes
             await query.edit_message_text("❌ কোনো স্কোর ডাটা পাওয়া যায়নি।")
 
     elif command_type == "trec":
-        # টপ রিকমেন্ডেশন
         if stats and stats['top_recommendations']:
             result = f"💡 **টপ রিকমেন্ডেশন - {date}**\n\n"
             result += "```\n"
@@ -741,7 +767,6 @@ async def special_command_callback_handler(update: Update, context: ContextTypes
             await query.edit_message_text(f"📭 {date} তারিখে কোনো টপ রিকমেন্ডেশন নেই।")
 
     elif command_type == "avoid":
-        # এড়িয়ে চলুন
         if stats and stats['avoid_symbols']:
             result = f"⚠️ **এড়িয়ে চলুন - {date}**\n\n"
             result += "```\n"
@@ -784,6 +809,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/clear` - আজকের ডাটা ক্লিয়ার\n"
         "`/status` - স্ট্যাটাস দেখুন\n"
         "`/reload` - ডাটা রিলোড করুন\n\n"
+        "📊 **অ্যাডভান্সড কমান্ড:**\n"
+        "`/chart [তারিখ]` - স্কোর ডিস্ট্রিবিউশন চার্ট\n"
+        "`/compare [তারিখ1] [তারিখ2]` - পোর্টফোলিও তুলনা\n"
+        "`/backtest [স্টার্ট] [এন্ড] [স্কোর]` - ব্যাকটেস্টিং\n"
+        "`/export [তারিখ]` - CSV এক্সপোর্ট\n"
+        "`/setalert [স্কোর]` - অ্যালার্ট সেট করুন\n\n"
         "📊 **স্কোর রেটিং:**\n"
         "💎 85+ এক্সট্রিম | 🔥 80-84 খুব শক্তিশালী | ⭐ 70-79 শক্তিশালী\n"
         "✅ 60-69 ভাল | 📈 50-59 মধ্যম | ⚠️ 40-49 দুর্বল | ❌ <40 খুব দুর্বল",
@@ -802,6 +833,15 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 **কলামের ক্রম:**
 1. symbol | 2. এলিয়ট ওয়েব | 3. সাব-ওয়েব | 4. এন্ট্রি | 5. স্টপ
 6. TP1 | 7. TP2 | 8. TP3 | 9. RRR | 10. স্কোর | 11. কুইক ইনসাইট
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 **অ্যাডভান্সড ফিচার**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• `/chart 29-03-2026` - স্কোর ডিস্ট্রিবিউশন চার্ট
+• `/compare 25-03-2026 29-03-2026` - পোর্টফোলিও তুলনা
+• `/backtest 01-03-2026 29-03-2026 70` - ব্যাকটেস্টিং
+• `/export 29-03-2026` - CSV এক্সপোর্ট
+• `/setalert 70` - 70+ স্কোরের অ্যালার্ট
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔍 **ইনসাইট দেখার নিয়ম**
@@ -966,7 +1006,7 @@ async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def format_as_table(data, title, offset=0, total_records=0, current_page=1, total_pages=1):
     """কার্ড ডিজাইন - প্রতিটি সিম্বলের জন্য বক্স"""
     if not data:
-        return f"📭 {title} - কোনো ডাটা নেই。"
+        return f"📭 {title} - কোনো ডাটা নেই।"
 
     result = f"📊 **{title}**  |  📋 {total_records} টি রেকর্ড  |  📄 পৃষ্ঠা {current_page}/{total_pages}\n\n"
     result += "```\n"
@@ -1042,7 +1082,7 @@ async def files_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def format_files_table(dates):
     """ফাইলের তালিকা দেখান"""
     if not dates:
-        return "📭 কোনো CSV ফাইল নেই。"
+        return "📭 কোনো CSV ফাইল নেই।"
 
     table = f"📁 **CSV ফাইলের তালিকা ({len(dates)} টি):**\n\n```\n"
     table += f"{'ক্রম':<6} {'ফাইলের নাম':<20} {'তারিখ':<12}\n"
@@ -1386,11 +1426,12 @@ async def reload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def home():
     return jsonify({
         "status": "active",
-        "bot": "Stock Data Bot with Portfolio Analytics, Trade Analytics & Inline Buttons",
+        "bot": "Stock Data Bot with Portfolio Analytics, Trade Analytics & Advanced Features",
         "hf_repo": HF_REPO,
         "today_records": len(bot.current_data),
         "columns": len(COLUMNS),
         "columns_list": COLUMNS,
+        "features": ["Chart", "Compare", "Backtest", "Export", "Alert"],
         "time": datetime.now().isoformat()
     })
 
@@ -1434,6 +1475,14 @@ async def run_bot():
         # পোর্টফোলিও কমান্ড (ইনলাইন বাটন সহ)
         application.add_handler(CommandHandler("portfolio", portfolio_command))
 
+        # অ্যাডভান্সড ফিচার কমান্ড
+        application.add_handler(CommandHandler("chart", chart_command_wrapper))
+        application.add_handler(CommandHandler("compare", compare_command_wrapper))
+        application.add_handler(CommandHandler("notify", notify_command_wrapper))
+        application.add_handler(CommandHandler("setalert", setalert_command_wrapper))
+        application.add_handler(CommandHandler("backtest", backtest_command_wrapper))
+        application.add_handler(CommandHandler("export", export_command_wrapper))
+
         # ইনলাইন বাটন কলব্যাক হ্যান্ডলার
         application.add_handler(CallbackQueryHandler(category_callback_handler, pattern='^(vs|vg|vm|vw|iw|cw)_'))
         application.add_handler(CallbackQueryHandler(symbol_detail_callback_handler, pattern='^sym_'))
@@ -1446,7 +1495,7 @@ async def run_bot():
 
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-        print("🤖 Telegram Bot starting with Inline Buttons & Trade Analytics...")
+        print("🤖 Telegram Bot starting with Inline Buttons, Trade Analytics & Advanced Features...")
         await application.initialize()
         await application.start()
         await application.updater.start_polling()
