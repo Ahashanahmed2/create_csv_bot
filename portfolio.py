@@ -1,4 +1,4 @@
-# portfolio.py - পোর্টফোলিও অ্যানালাইটিক্স মডিউল (ইনলাইন বাটন সহ)
+# portfolio.py - পোর্টফোলিও অ্যানালাইটিক্স মডিউল (ইনলাইন বাটন সহ) - আপডেটেড
 
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -90,19 +90,22 @@ class PortfolioAnalyzer:
             'avoid_symbols': []
         }
 
+        print(f"🔍 Analyzing {len(data)} records for portfolio...")
+
         for idx, row in enumerate(data):
-            if not row or len(row) < 10:
+            if not row or len(row) < 3:
+                print(f"⚠️ Row {idx} has insufficient columns: {len(row) if row else 0}")
                 continue
 
-            symbol = row[0] if len(row) > 0 else f"Unknown_{idx}"
+            symbol = row[0] if len(row) > 0 else "Unknown"
             score_str = row[9] if len(row) > 9 else "0"
             rrr_str = row[8] if len(row) > 8 else "1:0"
             wave_text = row[1] if len(row) > 1 else ""
             
-            # সাব-ওয়েব নিন - গুরুত্বপূর্ণ: এটি row[2] থেকে নিতে হবে
+            # সাব-ওয়েব সঠিকভাবে নিন - কলাম 2 (index 2)
             sub_wave = row[2] if len(row) > 2 and row[2] and row[2].strip() else "-"
             
-            print(f"DEBUG: {symbol} - sub_wave = '{sub_wave}'")  # ডিবাগ প্রিন্ট
+            print(f"📊 {symbol}: wave={wave_text}, subwave='{sub_wave}', score={score_str}")
 
             # স্কোর অনুযায়ী ক্যাটাগরি
             category = self.categorize_by_score(score_str)
@@ -116,25 +119,21 @@ class PortfolioAnalyzer:
                 stats['very_strong']['symbols'].append(symbol)
                 stats['very_strong']['scores'].append(score_val)
                 stats['very_strong']['subwaves'].append(sub_wave)
-                print(f"DEBUG: Added to very_strong: {symbol} - {sub_wave}")
             elif category == "good":
                 stats['good']['count'] += 1
                 stats['good']['symbols'].append(symbol)
                 stats['good']['scores'].append(score_val)
                 stats['good']['subwaves'].append(sub_wave)
-                print(f"DEBUG: Added to good: {symbol} - {sub_wave}")
             elif category == "medium":
                 stats['medium']['count'] += 1
                 stats['medium']['symbols'].append(symbol)
                 stats['medium']['scores'].append(score_val)
                 stats['medium']['subwaves'].append(sub_wave)
-                print(f"DEBUG: Added to medium: {symbol} - {sub_wave}")
             else:
                 stats['weak']['count'] += 1
                 stats['weak']['symbols'].append(symbol)
                 stats['weak']['scores'].append(score_val)
                 stats['weak']['subwaves'].append(sub_wave)
-                print(f"DEBUG: Added to weak: {symbol} - {sub_wave}")
 
             # ওয়েভ টাইপ
             wave_type = self.get_wave_type(wave_text)
@@ -164,9 +163,12 @@ class PortfolioAnalyzer:
         for i, sym in enumerate(stats['very_strong']['symbols'][:5]):
             stats['top_recommendations'].append(sym)
 
-        # এড়িয়ে চলুন (স্কোর 40 এর নিচে)
+        # এড়িয়ে চলুন (স্কোর 50 এর নিচে)
         for sym in stats['weak']['symbols']:
             stats['avoid_symbols'].append(sym)
+            
+        print(f"✅ Analysis complete: Very Strong={stats['very_strong']['count']}, Good={stats['good']['count']}, Medium={stats['medium']['count']}, Weak={stats['weak']['count']}")
+        print(f"   Subwaves: Very Strong={len(stats['very_strong']['subwaves'])}, Good={len(stats['good']['subwaves'])}, Medium={len(stats['medium']['subwaves'])}, Weak={len(stats['weak']['subwaves'])}")
 
         return stats
 
@@ -209,7 +211,7 @@ class PortfolioAnalyzer:
             if len(stats['avoid_symbols']) > 3:
                 avoid_list.append("...")
             avoid_text = ", ".join(avoid_list)
-            report += f"⚠️ **এড়িয়ে চলুন:** {avoid_text} (স্কোর <40)\n"
+            report += f"⚠️ **এড়িয়ে চলুন:** {avoid_text} (স্কোর <50)\n"
 
         report += "\n🔽 **নিচের বাটনে ক্লিক করে বিস্তারিত দেখুন**"
 
@@ -249,10 +251,27 @@ class PortfolioAnalyzer:
         end = min(start + items_per_page, total)
         page_data = symbols_data[start:end]
 
-        result = f"📊 **{title}**  |  📋 {total} টি সিম্বল  |  📄 পৃষ্ঠা {page}/{total_pages}\n\n"
+        # title থেকে ক্যাটাগরি টাইপ বের করুন
+        if "দুর্বল" in title:
+            category_name = "দুর্বল"
+            emoji = "❌"
+        elif "মধ্যম" in title:
+            category_name = "মধ্যম"
+            emoji = "⚠️"
+        elif "ভাল" in title:
+            category_name = "ভাল"
+            emoji = "✅"
+        elif "শক্তিশালী" in title:
+            category_name = "খুব শক্তিশালী"
+            emoji = "🔥"
+        else:
+            category_name = title.split("(")[0].strip()
+            emoji = "📊"
+
+        result = f"{emoji} **{category_name} সিম্বল ({title.split('(')[-1].replace(')', '')})** | 📋 {total} টি সিম্বল | 📄 পৃষ্ঠা {page}/{total_pages}\n\n"
         result += "```\n"
-        result += f"{'ক্রম':<6} {'সিম্বল':<15} {'স্কোর':<10} {'সাব-ওয়েব':<30}\n"
-        result += "-" * 61 + "\n"
+        result += f"{'ক্রম':<6} {'সিম্বল':<15} {'স্কোর':<10} {'সাব-ওয়েব':<25}\n"
+        result += "-" * 56 + "\n"
 
         for i, item in enumerate(page_data):
             serial = start + i + 1
@@ -265,15 +284,11 @@ class PortfolioAnalyzer:
                 symbol, score = item, "-"
                 subwave = "-"
 
-            # সাব-ওয়েব খালি থাকলে "-" দেখান
-            if not subwave or subwave.strip() == "":
-                subwave = "-"
-
-            emoji = self.get_score_emoji(score) if score != "-" else "📊"
+            emoji_score = self.get_score_emoji(score) if score != "-" else "📊"
             if score != "-":
-                result += f"{serial:<6} {symbol:<15} {score}/100 {emoji:<5} {subwave:<30}\n"
+                result += f"{serial:<6} {symbol:<15} {score}/100 {emoji_score:<5} {subwave:<25}\n"
             else:
-                result += f"{serial:<6} {symbol:<15} {'':<10} {emoji:<5} {subwave:<30}\n"
+                result += f"{serial:<6} {symbol:<15} {'':<10} {emoji_score:<5} {subwave:<25}\n"
 
         result += "```\n\n"
 
@@ -333,28 +348,22 @@ class PortfolioAnalyzer:
     def get_symbol_detail(self, date, symbol, all_data):
         """সিম্বলের বিস্তারিত তথ্য সংগ্রহ করুন"""
         for idx, row in enumerate(all_data):
-            if len(row) > 0 and row[0] == symbol:
+            if row[0] == symbol:
                 score_str = row[9] if len(row) > 9 else "0"
                 score_val = int(score_str) if score_str.isdigit() else 0
-
-                # এন্ট্রি, TP ইত্যাদি ফরম্যাট করুন
-                entry = row[3] if len(row) > 3 else "-"
-                stop_loss = row[4] if len(row) > 4 else "-"
-                tp1 = row[5] if len(row) > 5 else "-"
-                tp2 = row[6] if len(row) > 6 else "-"
-                tp3 = row[7] if len(row) > 7 else "-"
                 
-                targets = f"{tp1} → {tp2} → {tp3}" if tp1 != "-" else "-"
+                # সাব-ওয়েব নিন
+                sub_wave = row[2] if len(row) > 2 and row[2] and row[2].strip() else "-"
 
                 return {
                     'rank': idx + 1,
                     'symbol': symbol,
                     'status_icon': self.get_score_emoji(score_str),
                     'wave_type': row[1] if len(row) > 1 else "-",
-                    'wave_detail': row[2] if len(row) > 2 and row[2].strip() else "-",
-                    'entry': entry,
-                    'stop_loss': stop_loss,
-                    'targets': targets,
+                    'wave_detail': sub_wave,
+                    'entry': row[3] if len(row) > 3 else "-",
+                    'stop_loss': row[4] if len(row) > 4 else "-",
+                    'targets': f"{row[5]} → {row[6]} → {row[7]}" if len(row) > 7 else "-",
                     'rrr': row[8] if len(row) > 8 else "-",
                     'score': score_str,
                     'score_icon': self.get_score_emoji(score_str),
