@@ -831,7 +831,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📁 **ফাইল ম্যানেজমেন্ট**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• `/files` - সব CSV ফাইলের তালিকা
+• `/files` - সব CSV ফাইলের তালিকা (ক্রম, ফাইল নাম, সিম্বল সংখ্যা)
 • `/view 25-03-2026` - প্রথম পৃষ্ঠা দেখাবে
 • `/view 25-03-2026 2` - দ্বিতীয় পৃষ্ঠা দেখাবে
 • `/deletefile 25-03-2026` - ফাইল ডিলিট
@@ -917,14 +917,18 @@ async def insight_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             tp1 = row[5] if len(row) > 5 else "-"
             tp2 = row[6] if len(row) > 6 else "-"
             tp3 = row[7] if len(row) > 7 else "-"
+            
+            main_wave = row[1] if len(row) > 1 else "-"
+            sub_wave = row[2] if len(row) > 2 and row[2].strip() else "-"
 
             message = f"""
 📊 **{symbol} - সম্পূর্ণ বিশ্লেষণ**
 
 📅 তারিখ: `{date}`
 
-🔍 **টেকনিক্যাল ইনসাইট:**
-{insight}
+🌊 **এলিয়ট ওয়েব অবস্থান:**
+• এলিয়ট ওয়েব: `{main_wave}`
+• সাব-ওয়েব: `{sub_wave}`
 
 📈 **ট্রেডিং প্যারামিটারস:**
 • এন্ট্রি জোন: `{row[3]}`
@@ -935,9 +939,8 @@ async def insight_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • RRR: `{row[8]}`
 • স্কোর: `{score}/100 {score_emoji}` - {score_text}
 
-💡 **এলিয়ট ওয়েব অবস্থান:**
-• ওয়েভ: `{row[1]}`
-• সাব-ওয়েভ: `{row[2]}`
+🔍 **টেকনিক্যাল ইনসাইট:**
+{insight}
 """
             await status_msg.edit_text(message, parse_mode='Markdown')
             return
@@ -978,7 +981,7 @@ async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(table, parse_mode='Markdown')
 
 def format_as_table(data, title, offset=0, total_records=0, current_page=1, total_pages=1):
-    """কার্ড ডিজাইন - প্রতিটি সিম্বলের জন্য বক্স"""
+    """কার্ড ডিজাইন - সম্পূর্ণ ডিটেইলস + আলাদা সাব-ওয়েব"""
     if not data:
         return f"📭 {title} - কোনো ডাটা নেই।"
 
@@ -992,12 +995,9 @@ def format_as_table(data, title, offset=0, total_records=0, current_page=1, tota
         score_emoji = get_score_emoji(score)
         symbol_emoji = score_emoji
 
-        wave = row[1] if len(row) > 1 else "-"
-        subwave = row[2] if len(row) > 2 else ""
-        if subwave and subwave != "-":
-            wave_text = f"{wave} → {subwave}"
-        else:
-            wave_text = wave
+        # এলিয়ট ওয়েব এবং সাব-ওয়েব আলাদা
+        main_wave = row[1] if len(row) > 1 else "-"
+        sub_wave = row[2] if len(row) > 2 and row[2].strip() else "-"
 
         entry = row[3] if len(row) > 3 else "-"
         stop = row[4] if len(row) > 4 else "-"
@@ -1010,7 +1010,12 @@ def format_as_table(data, title, offset=0, total_records=0, current_page=1, tota
         result += f"╔══════════════════════════════════════════════════════════════════════════════╗\n"
         result += f"║ #{serial} {row[0]} {symbol_emoji}\n"
         result += f"╠══════════════════════════════════════════════════════════════════════════════╣\n"
-        result += f"║ 🌊 ওয়েভ    : {wave_text}\n"
+        result += f"║ 🌊 এলিয়ট ওয়েব : {main_wave}\n"
+        
+        # সাব-ওয়েব দেখান (যদি থাকে)
+        if sub_wave != "-":
+            result += f"║ 📍 সাব-ওয়েব    : {sub_wave}\n"
+        
         result += f"║ 📈 এন্ট্রি  : {entry}  |  🛑 স্টপ: {stop}\n"
         result += f"║ 🎯 টার্গেট  : {tp1} → {tp2} → {tp3}  |  📊 RRR: {rrr}\n"
         result += f"║ 🏆 স্কোর    : {score}/100 {score_emoji}  |  {get_score_text(score)}\n"
@@ -1043,7 +1048,7 @@ async def yesclear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ আগে `/clear` দিন।", parse_mode='Markdown')
 
 async def files_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """সব CSV ফাইলের তালিকা দেখান"""
+    """সব CSV ফাইলের তালিকা দেখান - ক্রম, ফাইল নাম, সিম্বল সংখ্যা"""
     dates = hf_manager.get_all_csv_files()
 
     if not dates:
@@ -1054,18 +1059,42 @@ async def files_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(table, parse_mode='Markdown')
 
 def format_files_table(dates):
-    """ফাইলের তালিকা দেখান"""
+    """ফাইলের তালিকা দেখান - ক্রম, ফাইল নাম, সিম্বল সংখ্যা"""
     if not dates:
         return "📭 কোনো CSV ফাইল নেই।"
 
-    table = f"📁 **CSV ফাইলের তালিকা ({len(dates)} টি):**\n\n```\n"
-    table += f"{'ক্রম':<6} {'ফাইলের নাম':<20} {'তারিখ':<12}\n"
-    table += "-" * 38 + "\n"
+    # প্রথমে প্রতিটি ফাইলের জন্য সিম্বল কাউন্ট গণনা করুন
+    file_stats = []
+    for date in dates:
+        data = hf_manager.read_csv_file(date)
+        symbol_count = 0
+        
+        if data and len(data) > 0:
+            start_idx = 0
+            if data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
+                start_idx = 1
+            
+            all_data = data[start_idx:]
+            symbol_count = len(all_data)
+        
+        file_stats.append({
+            'date': date,
+            'symbols': symbol_count
+        })
 
-    for i, date in enumerate(dates):
-        table += f"{i+1:<6} {date}.csv{' ':<{20-len(date)-4}} {date:<12}\n"
+    table = f"📁 **CSV ফাইলের তালিকা ({len(dates)} টি):**\n\n```\n"
+    table += f"{'ক্রম':<6} {'ফাইলের নাম':<20} {'সিম্বল':<10}\n"
+    table += "-" * 36 + "\n"
+
+    for i, stats in enumerate(file_stats):
+        table += f"{i+1:<6} {stats['date']}.csv{' ':<{20-len(stats['date'])-4}} {stats['symbols']:<10}\n"
 
     table += "```"
+    
+    # সামারি যোগ করুন
+    total_symbols = sum(s['symbols'] for s in file_stats)
+    table += f"\n📊 **মোট সিম্বল:** {total_symbols} টি"
+    
     return table
 
 async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1345,7 +1374,11 @@ def get_search_results_table(results, search_symbol):
         line += f"{r['date'][:col_widths[1]]:<{col_widths[1]}}"
         line += f"{r['row'][0][:col_widths[2]]:<{col_widths[2]}}"
         line += f"{r['row'][1][:col_widths[3]]:<{col_widths[3]}}" if len(r['row']) > 1 else f"{'':<{col_widths[3]}}"
-        line += f"{r['row'][2][:col_widths[4]]:<{col_widths[4]}}" if len(r['row']) > 2 else f"{'':<{col_widths[4]}}"
+        
+        # সাব-ওয়েব দেখান
+        sub_wave = r['row'][2] if len(r['row']) > 2 else "-"
+        line += f"{sub_wave[:col_widths[4]]:<{col_widths[4]}}"
+        
         line += f"{r['row'][3][:col_widths[5]]:<{col_widths[5]}}" if len(r['row']) > 3 else f"{'':<{col_widths[5]}}"
 
         score = r['row'][9] if len(r['row']) > 9 else "-"
