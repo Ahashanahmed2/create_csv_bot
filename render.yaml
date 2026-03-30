@@ -1,12 +1,16 @@
 services:
   - type: web
-    name: stock-telegram-bot
-    runtime: image
-    image:
-      url: python:3.11-slim
+    name: stock-data-bot
+    runtime: python
+    repo: https://github.com/Ahashanahmed2/create_csv_bot
+    plan: free
+    region: singapore
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
     envVars:
       - key: TELEGRAM_BOT_TOKEN
         sync: false
-    plan: free
+      - key: HF_TOKEN
+        sync: false
+      - key: PORT
+        value: 10000
