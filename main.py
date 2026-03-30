@@ -99,7 +99,6 @@ class HuggingFaceManager:
 
             if filename not in files:
                 print(f"❌ File not found: {filename}")
-                print(f"📁 Available stock files: {[f for f in files if f.startswith('stock/')][:10]}")
                 return None
 
             print(f"✅ File found, downloading...")
@@ -233,7 +232,7 @@ class StockDataBot:
         self.load_current_data()
 
     def load_current_data(self):
-        """আজকের ডাটা লোড করুন - যদি না থাকে তাহলে সর্বশেষ ফাইল লোড করুন"""
+        """আজকের ডাটা লোড করুন - শুধুমাত্র আজকের ফাইল"""
         print(f"📂 Loading data for {self.current_date}...")
         data = hf_manager.read_csv_file(self.current_date)
         if data:
@@ -243,24 +242,19 @@ class StockDataBot:
             self.current_data = data[start_idx:]
             print(f"✅ Loaded {len(self.current_data)} records for {self.current_date}")
         else:
-            # আজকের ডাটা না থাকলে সর্বশেষ ফাইল লোড করুন
-            files = hf_manager.get_all_csv_files()
-            if files:
-                latest_date = files[0]
-                print(f"⚠️ No data for {self.current_date}, loading latest: {latest_date}")
-                data = hf_manager.read_csv_file(latest_date)
-                if data:
-                    start_idx = 0
-                    if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
-                        start_idx = 1
-                    self.current_data = data[start_idx:]
-                    print(f"✅ Loaded {len(self.current_data)} records from {latest_date}")
-                else:
-                    self.current_data = []
-                    print(f"⚠️ No data found")
-            else:
-                self.current_data = []
-                print(f"⚠️ No data for {self.current_date}")
+            # আজকের ডাটা না থাকলে খালি লিস্ট রাখুন (কোনো ফাইল লোড করবেন না)
+            self.current_data = []
+            print(f"⚠️ No data for {self.current_date}, starting with empty list")
+
+    def get_data_for_date(self, date):
+        """নির্দিষ্ট তারিখের ডাটা লোড করুন - অন্য তারিখের ডাটা মিক্স করবেন না"""
+        data = hf_manager.read_csv_file(date)
+        if data:
+            start_idx = 0
+            if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
+                start_idx = 1
+            return data[start_idx:]
+        return []
 
     def parse_csv_line(self, line):
         """CSV লাইন পার্স করে 11টি কলামে রূপান্তর"""
@@ -274,7 +268,7 @@ class StockDataBot:
         return items
 
     def add_csv_data(self, csv_text):
-        """আজকের ডাটায় যোগ করুন"""
+        """শুধু আজকের ডাটায় যোগ করুন - অন্য তারিখের সাথে মিক্স করবেন না"""
         lines = csv_text.strip().split('\n')
         added = 0
         duplicate_skipped = 0
@@ -313,25 +307,13 @@ class StockDataBot:
         return "❌ কোনো নতুন ডাটা যোগ হয়নি।"
 
     def clear_current_data(self):
-        """আজকের ডাটা ক্লিয়ার করুন"""
+        """শুধু আজকের ডাটা ক্লিয়ার করুন"""
         count = len(self.current_data)
         self.current_data = []
         success, msg = hf_manager.save_csv_file(self.current_date, [COLUMNS])
         if success:
             return f"✅ {count} টি ডাটা মুছে ফেলা হয়েছে।"
         return f"⚠️ ডাটা ক্লিয়ার হয়েছে কিন্তু সেভ করতে পারেনি: {msg}"
-
-    def fix_date_format(self, date_str):
-        """তারিখ ফরম্যাট ঠিক করা"""
-        date_str = date_str.strip()
-        pattern = r'^(\d{1,2})-(\d{1,2})-(\d{4})$'
-        match = re.match(pattern, date_str)
-        if match:
-            day = match.group(1).zfill(2)
-            month = match.group(2).zfill(2)
-            year = match.group(3)
-            return f"{day}-{month}-{year}"
-        return date_str
 
 bot = StockDataBot()
 
@@ -433,15 +415,12 @@ async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         date_input = args[0]
         date = fix_date_format(date_input)
     else:
-        if bot.current_data:
-            date = bot.current_date
+        files = hf_manager.get_all_csv_files()
+        if files:
+            date = files[0]
         else:
-            files = hf_manager.get_all_csv_files()
-            if files:
-                date = files[0]
-            else:
-                await update.message.reply_text("❌ কোনো CSV ফাইল নেই।")
-                return
+            await update.message.reply_text("❌ কোনো CSV ফাইল নেই।")
+            return
 
     status_msg = await update.message.reply_text(f"⏳ পোর্টফোলিও অ্যানালাইসিস করা হচ্ছে ({date})...")
 
@@ -984,7 +963,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """আজকের ডাটা দেখান"""
+    """আজকের ডাটা দেখান - শুধু আজকের"""
     if not bot.current_data:
         await update.message.reply_text(f"📭 {bot.current_date} তারিখের কোনো ডাটা নেই।")
         return
@@ -1090,7 +1069,7 @@ def format_files_table(dates):
     return table
 
 async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """নির্দিষ্ট তারিখের CSV ফাইল দেখান - কার্ড ডিজাইন + পেজিনেশন"""
+    """নির্দিষ্ট তারিখের CSV ফাইল দেখান - শুধু সেই তারিখের ডাটা"""
     if not context.args:
         await update.message.reply_text(
             "❌ 📅 তারিখ দিন। উদাহরণ: `/view 25-03-2026` অথবা `/view 25-03-2026 2`\n\n"
@@ -1348,7 +1327,7 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def get_search_results_table(results, search_symbol):
     """সার্চ রেজাল্ট দেখান"""
     if not results:
-        return f"❌ '{search_symbol}' কোনো ফাইলে পাওয়া যায়নি。"
+        return f"❌ '{search_symbol}' কোনো ফাইলে পাওয়া যায়নি।"
 
     headers = ["#", "তারিখ", "সিম্বল", "এলিয়ট ওয়েব", "সাব-ওয়েব", "এন্ট্রি", "স্কোর"]
     col_widths = [4, 12, 12, 18, 15, 12, 6]
@@ -1407,13 +1386,13 @@ async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ অপারেশন বাতিল করা হয়েছে।")
 
 async def reload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Hugging Face থেকে ডাটা রিলোড করুন"""
+    """Hugging Face থেকে আজকের ডাটা রিলোড করুন"""
     await update.message.reply_text("⏳ ডাটা রিলোড করা হচ্ছে...")
     bot.load_current_data()
     if bot.current_data:
         await update.message.reply_text(f"✅ {len(bot.current_data)} টি রেকর্ড রিলোড হয়েছে।")
     else:
-        await update.message.reply_text("❌ কোনো ডাটা রিলোড করতে পারেনি।")
+        await update.message.reply_text("✅ আজকের ডাটা খালি করা হয়েছে।")
 
 # ==================== FLASK ROUTES ====================
 
