@@ -242,11 +242,12 @@ class StockDataBot:
             self.current_data = data[start_idx:]
             print(f"✅ Loaded {len(self.current_data)} records for {self.current_date}")
         else:
+            # আজকের ডাটা না থাকলে খালি লিস্ট রাখুন (কোনো ফাইল লোড করবেন না)
             self.current_data = []
             print(f"⚠️ No data for {self.current_date}, starting with empty list")
 
     def get_data_for_date(self, date):
-        """নির্দিষ্ট তারিখের ডাটা লোড করুন"""
+        """নির্দিষ্ট তারিখের ডাটা লোড করুন - অন্য তারিখের ডাটা মিক্স করবেন না"""
         data = hf_manager.read_csv_file(date)
         if data:
             start_idx = 0
@@ -267,7 +268,7 @@ class StockDataBot:
         return items
 
     def add_csv_data(self, csv_text):
-        """শুধু আজকের ডাটায় যোগ করুন"""
+        """শুধু আজকের ডাটায় যোগ করুন - অন্য তারিখের সাথে মিক্স করবেন না"""
         lines = csv_text.strip().split('\n')
         added = 0
         duplicate_skipped = 0
@@ -336,34 +337,6 @@ def fix_date_format(date_str):
         return f"{day}-{month}-{year}"
     return date_str
 
-def get_wave_emoji(wave, subwave):
-    """ওয়েভ টাইপ অনুযায়ী ইমোজি রিটার্ন করুন"""
-    if "Impulse" in wave:
-        return "⚡"
-    elif "Corrective" in wave:
-        return "🌀"
-    
-    if subwave != "-":
-        if "Wave 1" in subwave or "Wave 3" in subwave or "Wave 5" in subwave:
-            return "📈"
-        elif "Wave 2" in subwave or "Wave 4" in subwave:
-            return "📉"
-        elif "A" in subwave or "B" in subwave or "C" in subwave:
-            return "🔄"
-    return "🌊"
-
-def get_subwave_emoji(subwave):
-    """সাব-ওয়েব অনুযায়ী ইমোজি রিটার্ন করুন"""
-    if subwave == "-":
-        return "📍"
-    if "Wave 1" in subwave or "Wave 3" in subwave or "Wave 5" in subwave:
-        return "📈"
-    elif "Wave 2" in subwave or "Wave 4" in subwave:
-        return "📉"
-    elif "A" in subwave or "B" in subwave or "C" in subwave:
-        return "🔄"
-    return "📍"
-
 def get_score_emoji(score):
     """স্কোর অনুযায়ী ইমোজি রিটার্ন করুন"""
     try:
@@ -390,26 +363,622 @@ def get_score_text(score):
     try:
         score_num = int(score)
         if score_num >= 85:
-            return "এক্সট্রিম শক্তিশালী"
+            return "💎 এক্সট্রিম শক্তিশালী"
         elif score_num >= 80:
-            return "খুব শক্তিশালী"
+            return "🔥 খুব শক্তিশালী"
         elif score_num >= 70:
-            return "শক্তিশালী"
+            return "⭐ শক্তিশালী"
         elif score_num >= 60:
-            return "ভাল"
+            return "✅ ভাল"
         elif score_num >= 50:
-            return "মধ্যম"
+            return "📈 মধ্যম"
         elif score_num >= 40:
-            return "দুর্বল"
+            return "⚠️ দুর্বল"
         else:
-            return "খুব দুর্বল"
+            return "❌ খুব দুর্বল"
     except:
-        return "সাধারণ"
+        return "⭐ সাধারণ"
 
-# ==================== UPDATED FORMAT FUNCTION WITH WAVE + SUBWAVE ====================
+# ==================== ADVANCED FEATURES WRAPPERS ====================
+
+async def chart_command_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """চার্ট জেনারেট করুন - র‍্যাপার ফাংশন"""
+    await chart_command(update, context, hf_manager, bot)
+
+async def compare_command_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """কম্পেয়ার - র‍্যাপার ফাংশন"""
+    await compare_command(update, context, hf_manager, bot)
+
+async def notify_command_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """নোটিফিকেশন - র‍্যাপার ফাংশন"""
+    await notify_command(update, context)
+
+async def setalert_command_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """অ্যালার্ট সেট - র‍্যাপার ফাংশন"""
+    await setalert_command(update, context)
+
+async def backtest_command_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ব্যাকটেস্ট - র‍্যাপার ফাংশন"""
+    await backtest_command(update, context, hf_manager)
+
+async def export_command_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """এক্সপোর্ট - র‍্যাপার ফাংশন"""
+    await export_command(update, context, hf_manager)
+
+# ==================== PORTFOLIO HANDLERS WITH INLINE BUTTONS ====================
+
+async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """পোর্টফোলিও রিপোর্ট ইনলাইন বাটন সহ দেখান"""
+    args = context.args
+
+    if args:
+        date_input = args[0]
+        date = fix_date_format(date_input)
+    else:
+        files = hf_manager.get_all_csv_files()
+        if files:
+            date = files[0]
+        else:
+            await update.message.reply_text("❌ কোনো CSV ফাইল নেই।")
+            return
+
+    status_msg = await update.message.reply_text(f"⏳ পোর্টফোলিও অ্যানালাইসিস করা হচ্ছে ({date})...")
+
+    data = hf_manager.read_csv_file(date)
+
+    if data is None:
+        await status_msg.edit_text(f"❌ {date}.csv ফাইল পাওয়া যায়নি।")
+        return
+
+    start_idx = 0
+    if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
+        start_idx = 1
+
+    all_data = data[start_idx:]
+
+    if not all_data:
+        await status_msg.edit_text(f"📭 {date}.csv ফাইলে কোনো ডাটা নেই।")
+        return
+
+    stats = portfolio_analyzer.analyze_portfolio(all_data)
+
+    if not stats:
+        await status_msg.edit_text("❌ অ্যানালাইসিস করতে ব্যর্থ হয়েছে।")
+        return
+
+    report, reply_markup = portfolio_analyzer.format_portfolio_report_with_buttons(stats, date)
+
+    await status_msg.edit_text(report, parse_mode='Markdown', reply_markup=reply_markup)
+
+async def category_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ক্যাটাগরি বাটনের কলব্যাক হ্যান্ডলার"""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    parts = data.split('_')
+
+    category = parts[0]
+    date = parts[1]
+    page = int(parts[2]) if len(parts) > 2 else 1
+
+    context.user_data['last_view'] = {'category': category, 'date': date, 'page': page}
+
+    csv_data = hf_manager.read_csv_file(date)
+
+    if csv_data is None:
+        await query.edit_message_text(f"❌ {date}.csv ফাইল পাওয়া যায়নি।")
+        return
+
+    start_idx = 0
+    if csv_data and csv_data[0] and len(csv_data[0]) > 0 and csv_data[0][0] == "symbol":
+        start_idx = 1
+
+    all_data = csv_data[start_idx:]
+
+    if not all_data:
+        await query.edit_message_text(f"📭 {date}.csv ফাইলে কোনো ডাটা নেই।")
+        return
+
+    stats = portfolio_analyzer.analyze_portfolio(all_data)
+
+    if not stats:
+        await query.edit_message_text("❌ অ্যানালাইসিস করতে ব্যর্থ হয়েছে।")
+        return
+
+    if category == "vs":
+        symbols_with_scores = list(zip(stats['very_strong']['symbols'], stats['very_strong']['scores']))
+        title = "🔥 খুব শক্তিশালী সিম্বল (স্কোর 80+)"
+    elif category == "vg":
+        symbols_with_scores = list(zip(stats['good']['symbols'], stats['good']['scores']))
+        title = "✅ ভাল সিম্বল (স্কোর 60-79)"
+    elif category == "vm":
+        symbols_with_scores = list(zip(stats['medium']['symbols'], stats['medium']['scores']))
+        title = "⚠️ মধ্যম সিম্বল (স্কোর 40-59)"
+    elif category == "vw":
+        symbols_with_scores = list(zip(stats['weak']['symbols'], stats['weak']['scores']))
+        title = "❌ দুর্বল সিম্বল (স্কোর <40)"
+    elif category == "iw":
+        symbols_with_scores = [(sym, "-") for sym in stats['impulse']['symbols']]
+        title = "📈 ইম্পালস ওয়েভ সিম্বল"
+    elif category == "cw":
+        symbols_with_scores = [(sym, "-") for sym in stats['corrective']['symbols']]
+        title = "🔄 করেকটিভ ওয়েভ সিম্বল"
+    else:
+        await query.edit_message_text("❌ ভুল ক্যাটাগরি।")
+        return
+
+    total_pages = (len(symbols_with_scores) + 9) // 10
+    if page > total_pages and total_pages > 0:
+        page = total_pages
+
+    result, reply_markup = portfolio_analyzer.format_symbols_with_buttons(
+        symbols_with_scores, title, date, category, page, total_pages
+    )
+
+    await query.edit_message_text(result, parse_mode='Markdown', reply_markup=reply_markup)
+
+async def symbol_detail_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """সিম্বল ডিটেইল বাটনের কলব্যাক হ্যান্ডলার"""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    parts = data.split('_')
+
+    if parts[0] == "sym":
+        date = parts[1]
+        symbol = parts[2]
+
+        csv_data = hf_manager.read_csv_file(date)
+
+        if csv_data is None:
+            await query.edit_message_text(f"❌ {date}.csv ফাইল পাওয়া যায়নি।")
+            return
+
+        start_idx = 0
+        if csv_data and csv_data[0] and len(csv_data[0]) > 0 and csv_data[0][0] == "symbol":
+            start_idx = 1
+
+        all_data = csv_data[start_idx:]
+
+        symbol_detail = portfolio_analyzer.get_symbol_detail(date, symbol, all_data)
+
+        if symbol_detail:
+            result, reply_markup = portfolio_analyzer.format_symbol_detail_with_buttons(symbol_detail, date)
+            await query.edit_message_text(result, parse_mode='Markdown', reply_markup=reply_markup)
+        else:
+            await query.edit_message_text(f"❌ {symbol} সিম্বলের ডাটা পাওয়া যায়নি।")
+
+async def report_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """রিপোর্ট ব্যাক বাটনের কলব্যাক হ্যান্ডলার"""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    parts = data.split('_')
+
+    if parts[0] == "report":
+        date = parts[1]
+
+        csv_data = hf_manager.read_csv_file(date)
+
+        if csv_data is None:
+            await query.edit_message_text(f"❌ {date}.csv ফাইল পাওয়া যায়নি।")
+            return
+
+        start_idx = 0
+        if csv_data and csv_data[0] and len(csv_data[0]) > 0 and csv_data[0][0] == "symbol":
+            start_idx = 1
+
+        all_data = csv_data[start_idx:]
+
+        stats = portfolio_analyzer.analyze_portfolio(all_data)
+
+        if stats:
+            report, reply_markup = portfolio_analyzer.format_portfolio_report_with_buttons(stats, date)
+            await query.edit_message_text(report, parse_mode='Markdown', reply_markup=reply_markup)
+
+async def back_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ব্যাক বাটনের কলব্যাক হ্যান্ডলার"""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    parts = data.split('_')
+
+    if parts[0] == "back":
+        date = parts[1]
+
+        last_data = context.user_data.get('last_view', {})
+        category = last_data.get('category', 'vs')
+        page = last_data.get('page', 1)
+
+        csv_data = hf_manager.read_csv_file(date)
+
+        if csv_data:
+            start_idx = 0
+            if csv_data and csv_data[0] and len(csv_data[0]) > 0 and csv_data[0][0] == "symbol":
+                start_idx = 1
+
+            all_data = csv_data[start_idx:]
+            stats = portfolio_analyzer.analyze_portfolio(all_data)
+
+            if stats:
+                if category == "vs":
+                    symbols_with_scores = list(zip(stats['very_strong']['symbols'], stats['very_strong']['scores']))
+                    title = "🔥 খুব শক্তিশালী সিম্বল (স্কোর 80+)"
+                elif category == "vg":
+                    symbols_with_scores = list(zip(stats['good']['symbols'], stats['good']['scores']))
+                    title = "✅ ভাল সিম্বল (স্কোর 60-79)"
+                elif category == "vm":
+                    symbols_with_scores = list(zip(stats['medium']['symbols'], stats['medium']['scores']))
+                    title = "⚠️ মধ্যম সিম্বল (স্কোর 40-59)"
+                elif category == "vw":
+                    symbols_with_scores = list(zip(stats['weak']['symbols'], stats['weak']['scores']))
+                    title = "❌ দুর্বল সিম্বল (স্কোর <40)"
+                elif category == "iw":
+                    symbols_with_scores = [(sym, "-") for sym in stats['impulse']['symbols']]
+                    title = "📈 ইম্পালস ওয়েভ সিম্বল"
+                elif category == "cw":
+                    symbols_with_scores = [(sym, "-") for sym in stats['corrective']['symbols']]
+                    title = "🔄 করেকটিভ ওয়েভ সিম্বল"
+                else:
+                    symbols_with_scores = list(zip(stats['very_strong']['symbols'], stats['very_strong']['scores']))
+                    title = "🔥 খুব শক্তিশালী সিম্বল (স্কোর 80+)"
+
+                total_pages = (len(symbols_with_scores) + 9) // 10
+                if page > total_pages:
+                    page = total_pages
+
+                result, reply_markup = portfolio_analyzer.format_symbols_with_buttons(
+                    symbols_with_scores, title, date, category, page, total_pages
+                )
+                await query.edit_message_text(result, parse_mode='Markdown', reply_markup=reply_markup)
+            else:
+                await query.edit_message_text("❌ ডাটা লোড করতে ব্যর্থ হয়েছে।")
+        else:
+            await query.edit_message_text(f"❌ {date}.csv ফাইল পাওয়া যায়নি।")
+
+async def special_command_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """বিশেষ কমান্ডের কলব্যাক হ্যান্ডলার (brrr, hscore, trec, avoid)"""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    parts = data.split('_')
+    command_type = parts[0]
+    date = parts[1] if len(parts) > 1 else None
+
+    if not date:
+        await query.edit_message_text("❌ তারিখ পাওয়া যায়নি।")
+        return
+
+    csv_data = hf_manager.read_csv_file(date)
+
+    if csv_data is None:
+        await query.edit_message_text(f"❌ {date}.csv ফাইল পাওয়া যায়নি।")
+        return
+
+    start_idx = 0
+    if csv_data and csv_data[0] and len(csv_data[0]) > 0 and csv_data[0][0] == "symbol":
+        start_idx = 1
+
+    all_data = csv_data[start_idx:]
+    stats = portfolio_analyzer.analyze_portfolio(all_data)
+
+    if command_type == "brrr":
+        best_rrr = {'value': 0, 'symbol': '', 'rrr': '', 'score': ''}
+        for row in all_data:
+            if len(row) > 8:
+                symbol = row[0]
+                rrr_str = row[8]
+                score = row[9] if len(row) > 9 else "-"
+                rrr_value = portfolio_analyzer.parse_rrr(rrr_str)
+                if rrr_value > best_rrr['value']:
+                    best_rrr['value'] = rrr_value
+                    best_rrr['symbol'] = symbol
+                    best_rrr['rrr'] = rrr_str
+                    best_rrr['score'] = score
+
+        if best_rrr['value'] > 0:
+            emoji = get_score_emoji(best_rrr['score'])
+            result = f"🏆 **সেরা RRR - {date}**\n\n"
+            result += f"```\n"
+            result += f"সিম্বল      : {best_rrr['symbol']}\n"
+            result += f"RRR         : {best_rrr['rrr']}\n"
+            result += f"স্কোর       : {best_rrr['score']}/100 {emoji}\n"
+            result += f"```"
+            keyboard = [[InlineKeyboardButton("🔙 পোর্টফোলিওতে ফিরুন", callback_data=f"report_{date}")]]
+            await query.edit_message_text(result, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await query.edit_message_text("❌ কোনো RRR ডাটা পাওয়া যায়নি।")
+
+    elif command_type == "hscore":
+        highest = {'value': 0, 'symbol': '', 'score': ''}
+        for row in all_data:
+            if len(row) > 9:
+                symbol = row[0]
+                score_str = row[9]
+                try:
+                    score_val = int(score_str)
+                    if score_val > highest['value']:
+                        highest['value'] = score_val
+                        highest['symbol'] = symbol
+                        highest['score'] = score_str
+                except:
+                    continue
+
+        if highest['value'] > 0:
+            emoji = get_score_emoji(highest['score'])
+            result = f"💎 **সর্বোচ্চ স্কোর - {date}**\n\n"
+            result += f"```\n"
+            result += f"সিম্বল      : {highest['symbol']}\n"
+            result += f"স্কোর       : {highest['score']}/100 {emoji}\n"
+            result += f"```"
+            keyboard = [[InlineKeyboardButton("🔙 পোর্টফোলিওতে ফিরুন", callback_data=f"report_{date}")]]
+            await query.edit_message_text(result, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await query.edit_message_text("❌ কোনো স্কোর ডাটা পাওয়া যায়নি।")
+
+    elif command_type == "trec":
+        if stats and stats['top_recommendations']:
+            result = f"💡 **টপ রিকমেন্ডেশন - {date}**\n\n"
+            result += "```\n"
+            result += f"{'ক্রম':<6} {'সিম্বল':<15} {'স্কোর':<10} {'RRR'}\n"
+            result += "-" * 45 + "\n"
+            for i, sym in enumerate(stats['top_recommendations'][:10]):
+                score = "-"
+                rrr = "-"
+                for row in all_data:
+                    if row[0] == sym:
+                        if len(row) > 9:
+                            score = row[9]
+                        if len(row) > 8:
+                            rrr = row[8]
+                        break
+                emoji = get_score_emoji(score)
+                result += f"{i+1:<6} {sym:<15} {score}/100 {emoji:<5} {rrr}\n"
+            result += "```"
+            keyboard = [[InlineKeyboardButton("🔙 পোর্টফোলিওতে ফিরুন", callback_data=f"report_{date}")]]
+            await query.edit_message_text(result, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await query.edit_message_text(f"📭 {date} তারিখে কোনো টপ রিকমেন্ডেশন নেই।")
+
+    elif command_type == "avoid":
+        if stats and stats['avoid_symbols']:
+            result = f"⚠️ **এড়িয়ে চলুন - {date}**\n\n"
+            result += "```\n"
+            result += f"{'ক্রম':<6} {'সিম্বল':<15} {'স্কোর':<10} {'রেটিং'}\n"
+            result += "-" * 45 + "\n"
+            for i, sym in enumerate(stats['avoid_symbols'][:10]):
+                score = "-"
+                for row in all_data:
+                    if row[0] == sym and len(row) > 9:
+                        score = row[9]
+                        break
+                emoji = get_score_emoji(score)
+                result += f"{i+1:<6} {sym:<15} {score}/100 {emoji:<5} খুব দুর্বল\n"
+            result += "```"
+            keyboard = [[InlineKeyboardButton("🔙 পোর্টফোলিওতে ফিরুন", callback_data=f"report_{date}")]]
+            await query.edit_message_text(result, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await query.edit_message_text(f"📭 {date} তারিখে কোনো দুর্বল সিম্বল নেই।")
+
+# ==================== TELEGRAM HANDLERS ====================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🤖 **স্টক ডাটা বট - Hugging Face স্টোরেজ**\n\n"
+        "📝 **ডাটা যোগ করুন (11 কলাম):**\n"
+        "`ADVENT,Impulse (Up),Wave 5 of 3,13.8-14.2,13.2,15.0,16.0,17.5,1:2.5,68,মূল্য 13.0 টাকার নিচে ব্রেক করতে পারেনি...`\n\n"
+        "📚 **বেসিক কমান্ড:**\n"
+        "`/help` - সব কমান্ড দেখুন\n"
+        "`/list` - আজকের ডাটা দেখুন\n"
+        "`/portfolio` - পোর্টফোলিও অ্যানালাইসিস (ইনলাইন বাটন সহ)\n"
+        "`/trademenu` - ট্রেডিং অ্যানালাইটিক্স (ইনলাইন বাটন সহ)\n"
+        "`/insight [সিম্বল] [তারিখ]` - সম্পূর্ণ ইনসাইট দেখুন\n"
+        "`/files` - সব CSV ফাইলের তালিকা\n"
+        "`/view [তারিখ] [পৃষ্ঠা]` - কার্ড স্টাইলে ফাইল দেখুন\n"
+        "`/symbols [তারিখ]` - ফাইলের সিম্বল দেখুন\n"
+        "`/search [সিম্বল]` - সব ফাইলে সিম্বল খুঁজুন\n"
+        "`/searchsymbol [সিম্বল]` - ট্রেড ডাটাবেজে সিম্বল খুঁজুন\n"
+        "`/deletesymbol [তারিখ] [সিম্বল]` - সিম্বল ডিলিট\n"
+        "`/deletefile [তারিখ]` - ফাইল ডিলিট\n"
+        "`/clear` - আজকের ডাটা ক্লিয়ার\n"
+        "`/status` - স্ট্যাটাস দেখুন\n"
+        "`/reload` - ডাটা রিলোড করুন\n\n"
+        "📊 **অ্যাডভান্সড কমান্ড:**\n"
+        "`/chart [তারিখ]` - স্কোর ডিস্ট্রিবিউশন চার্ট\n"
+        "`/compare [তারিখ1] [তারিখ2]` - পোর্টফোলিও তুলনা\n"
+        "`/backtest [স্টার্ট] [এন্ড] [স্কোর]` - ব্যাকটেস্টিং\n"
+        "`/export [তারিখ]` - CSV এক্সপোর্ট\n"
+        "`/setalert [স্কোর]` - অ্যালার্ট সেট করুন\n\n"
+        "📊 **স্কোর রেটিং:**\n"
+        "💎 85+ এক্সট্রিম | 🔥 80-84 খুব শক্তিশালী | ⭐ 70-79 শক্তিশালী\n"
+        "✅ 60-69 ভাল | 📈 50-59 মধ্যম | ⚠️ 40-49 দুর্বল | ❌ <40 খুব দুর্বল",
+        parse_mode='Markdown'
+    )
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    help_text = """
+📚 **স্টক ডাটা বট - সম্পূর্ণ গাইড**
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📝 **ডাটা যোগ করার নিয়ম (11 কলাম)**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`ADVENT,Impulse (Up),Wave 5 of 3,13.8-14.2,13.2,15.0,16.0,17.5,1:2.5,68,মূল্য 13.0 টাকার নিচে ব্রেক করতে পারেনি...`
+
+**কলামের ক্রম:**
+1. symbol | 2. এলিয়ট ওয়েব | 3. সাব-ওয়েব | 4. এন্ট্রি | 5. স্টপ
+6. TP1 | 7. TP2 | 8. TP3 | 9. RRR | 10. স্কোর | 11. কুইক ইনসাইট
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 **অ্যাডভান্সড ফিচার**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• `/chart 29-03-2026` - স্কোর ডিস্ট্রিবিউশন চার্ট
+• `/compare 25-03-2026 29-03-2026` - পোর্টফোলিও তুলনা
+• `/backtest 01-03-2026 29-03-2026 70` - ব্যাকটেস্টিং
+• `/export 29-03-2026` - CSV এক্সপোর্ট
+• `/setalert 70` - 70+ স্কোরের অ্যালার্ট
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 **ইনসাইট দেখার নিয়ম**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• `/insight ADVENT` - সর্বশেষ ফাইল থেকে দেখাবে
+• `/insight ADVENT 25-03-2026` - নির্দিষ্ট তারিখের ফাইল থেকে দেখাবে
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📁 **ফাইল ম্যানেজমেন্ট**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• `/files` - সব CSV ফাইলের তালিকা
+• `/view 25-03-2026` - প্রথম পৃষ্ঠা দেখাবে
+• `/view 25-03-2026 2` - দ্বিতীয় পৃষ্ঠা দেখাবে
+• `/deletefile 25-03-2026` - ফাইল ডিলিট
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔍 **সিম্বল ম্যানেজমেন্ট**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• `/symbols 25-03-2026` - সিম্বল লিস্ট
+• `/deletesymbol 25-03-2026 ADVENT` - সিম্বল ডিলিট
+• `/search ADVENT` - সব ফাইলে খুঁজুন
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 **আজকের ডাটা**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• `/list` - আজকের ডাটা দেখুন
+• `/clear` - আজকের সব ডাটা মুছুন
+• `/yesclear` - ক্লিয়ার কনফার্ম
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 **পোর্টফোলিও অ্যানালাইসিস (ইনলাইন বাটন সহ)**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• `/portfolio [তারিখ]` - সম্পূর্ণ পোর্টফোলিও রিপোর্ট (বাটন সহ)
+• বাটনে ক্লিক করে বিস্তারিত দেখুন
+• সিম্বলের নামে ক্লিক করে সম্পূর্ণ ইনসাইট দেখুন
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 **ট্রেডিং অ্যানালাইটিক্স (ইনলাইন বাটন সহ)**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• `/trademenu` - ট্রেডিং অ্যানালাইটিক্স মেনু (বাটন সহ)
+• সক্রিয় ট্রেড, টিপি, এসএল লিস্ট দেখুন
+• ওয়েভ, গ্যাপ, টিপি লেভেল, স্কোর অনুযায়ী বিশ্লেষণ
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 **স্কোর রেটিং চার্ট**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💎 85-100 : এক্সট্রিম শক্তিশালী
+🔥 80-84  : খুব শক্তিশালী
+⭐ 70-79  : শক্তিশালী
+✅ 60-69  : ভাল
+📈 50-59  : মধ্যম
+⚠️ 40-49  : দুর্বল
+❌ <40    : খুব দুর্বল
+"""
+    await update.message.reply_text(help_text, parse_mode='Markdown')
+
+async def insight_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """নির্দিষ্ট সিম্বলের সম্পূর্ণ কুইক ইনসাইট দেখান"""
+    if not context.args:
+        await update.message.reply_text("❌ সিম্বল দিন। উদাহরণ: `/insight ADVENT` অথবা `/insight ADVENT 25-03-2026`")
+        return
+
+    symbol = context.args[0].upper()
+
+    if len(context.args) > 1:
+        date = fix_date_format(context.args[1])
+    else:
+        files = hf_manager.get_all_csv_files()
+        if files:
+            date = files[0]
+        else:
+            await update.message.reply_text("❌ কোনো CSV ফাইল নেই।")
+            return
+
+    status_msg = await update.message.reply_text(f"⏳ '{symbol}' এর ইনসাইট খুঁজছি ({date})...")
+
+    data = hf_manager.read_csv_file(date)
+
+    if data is None:
+        await status_msg.edit_text(f"❌ {date}.csv ফাইল পাওয়া যায়নি।")
+        return
+
+    start_idx = 0
+    if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
+        start_idx = 1
+
+    for row in data[start_idx:]:
+        if row and len(row) > 0 and row[0].upper() == symbol:
+            insight = row[10] if len(row) > 10 else "কোনো ইনসাইট নেই"
+            score = row[9] if len(row) > 9 else "-"
+            score_emoji = get_score_emoji(score)
+            score_text = get_score_text(score)
+
+            tp1 = row[5] if len(row) > 5 else "-"
+            tp2 = row[6] if len(row) > 6 else "-"
+            tp3 = row[7] if len(row) > 7 else "-"
+
+            message = f"""
+📊 **{symbol} - সম্পূর্ণ বিশ্লেষণ**
+
+📅 তারিখ: `{date}`
+
+🔍 **টেকনিক্যাল ইনসাইট:**
+{insight}
+
+📈 **ট্রেডিং প্যারামিটারস:**
+• এন্ট্রি জোন: `{row[3]}`
+• স্টপ লস: `{row[4]}`
+• TP1: `{tp1}`
+• TP2: `{tp2}`
+• TP3: `{tp3}`
+• RRR: `{row[8]}`
+• স্কোর: `{score}/100 {score_emoji}` - {score_text}
+
+💡 **এলিয়ট ওয়েব অবস্থান:**
+• ওয়েভ: `{row[1]}`
+• সাব-ওয়েভ: `{row[2]}`
+"""
+            await status_msg.edit_text(message, parse_mode='Markdown')
+            return
+
+    await status_msg.edit_text(f"❌ '{symbol}' সিম্বলটি {date}.csv ফাইলে পাওয়া যায়নি।")
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+
+    if text.startswith('/'):
+        return
+
+    if ',' in text:
+        await update.message.reply_text("⏳ ডাটা যোগ করা হচ্ছে...")
+        result = bot.add_csv_data(text)
+        await update.message.reply_text(result)
+    else:
+        await update.message.reply_text(
+            "❌ CSV ফরম্যাটে 11টি কলাম পাঠান। সাহায্যের জন্য `/help` দেখুন।\n\n"
+            "উদাহরণ:\n"
+            "`ADVENT,Impulse (Up),Wave 5 of 3,13.8-14.2,13.2,15.0,16.0,17.5,1:2.5,68,মূল্য 13.0 টাকার নিচে ব্রেক করতে পারেনি...`",
+            parse_mode='Markdown'
+        )
+
+async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """আজকের ডাটা দেখান - শুধু আজকের"""
+    if not bot.current_data:
+        await update.message.reply_text(f"📭 {bot.current_date} তারিখের কোনো ডাটা নেই।")
+        return
+
+    table = format_as_table(bot.current_data, f"{bot.current_date} - আজকের ডাটা", 0, len(bot.current_data), 1, 1)
+
+    if len(table) > 4000:
+        parts = [table[i:i+4000] for i in range(0, len(table), 4000)]
+        for part in parts:
+            await update.message.reply_text(part, parse_mode='Markdown')
+    else:
+        await update.message.reply_text(table, parse_mode='Markdown')
 
 def format_as_table(data, title, offset=0, total_records=0, current_page=1, total_pages=1):
-    """কার্ড ডিজাইন - এলিয়ট ওয়েব এবং সাব-ওয়েব আলাদাভাবে দেখানো হবে"""
+    """কার্ড ডিজাইন - প্রতিটি সিম্বলের জন্য বক্স"""
     if not data:
         return f"📭 {title} - কোনো ডাটা নেই।"
 
@@ -419,71 +988,92 @@ def format_as_table(data, title, offset=0, total_records=0, current_page=1, tota
     for i, row in enumerate(data):
         serial = i + 1 + offset
 
-        # ডাটা এক্সট্রাক্ট
-        symbol = row[0] if len(row) > 0 else "-"
+        score = row[9] if len(row) > 9 else "-"
+        score_emoji = get_score_emoji(score)
+        symbol_emoji = score_emoji
+
         wave = row[1] if len(row) > 1 else "-"
-        subwave = row[2] if len(row) > 2 else "-"
+        subwave = row[2] if len(row) > 2 else ""
+        if subwave and subwave != "-":
+            wave_text = f"{wave} → {subwave}"
+        else:
+            wave_text = wave
+
         entry = row[3] if len(row) > 3 else "-"
         stop = row[4] if len(row) > 4 else "-"
         tp1 = row[5] if len(row) > 5 else "-"
         tp2 = row[6] if len(row) > 6 else "-"
         tp3 = row[7] if len(row) > 7 else "-"
         rrr = row[8] if len(row) > 8 else "-"
-        score = row[9] if len(row) > 9 else "-"
         insight = row[10] if len(row) > 10 else "কোনো ইনসাইট নেই"
 
-        # ইমোজি
-        score_emoji = get_score_emoji(score)
-        wave_emoji = get_wave_emoji(wave, subwave)
-        subwave_emoji = get_subwave_emoji(subwave)
-
         result += f"╔══════════════════════════════════════════════════════════════════════════════╗\n"
-        result += f"║ #{serial} {symbol} {score_emoji}\n"
+        result += f"║ #{serial} {row[0]} {symbol_emoji}\n"
         result += f"╠══════════════════════════════════════════════════════════════════════════════╣\n"
-        
-        # এলিয়ট ওয়েব লাইন (ইমোজি সহ)
-        result += f"║ {wave_emoji} এলিয়ট ওয়েব : {wave}\n"
-        
-        # সাব-ওয়েব লাইন (ইমোজি সহ)
-        if subwave != "-":
-            result += f"║ {subwave_emoji} সাব-ওয়েব    : {subwave}\n"
-        else:
-            result += f"║ 📍 সাব-ওয়েব    : -\n"
-        
-        result += f"║ ─────────────────────────────────────────────────────────────────────────────║\n"
-        result += f"║ 📈 এন্ট্রি     : {entry}  |  🛑 স্টপ লস: {stop}\n"
-        result += f"║ 🎯 টার্গেট     : {tp1} → {tp2} → {tp3}\n"
-        result += f"║ 📊 RRR         : {rrr}  |  🏆 স্কোর: {score}/100 {score_emoji}\n"
-        result += f"║ 💬 রেটিং       : {get_score_text(score)}\n"
-        result += f"║ ─────────────────────────────────────────────────────────────────────────────║\n"
+        result += f"║ 🌊 ওয়েভ    : {wave_text}\n"
+        result += f"║ 📈 এন্ট্রি  : {entry}  |  🛑 স্টপ: {stop}\n"
+        result += f"║ 🎯 টার্গেট  : {tp1} → {tp2} → {tp3}  |  📊 RRR: {rrr}\n"
+        result += f"║ 🏆 স্কোর    : {score}/100 {score_emoji}  |  {get_score_text(score)}\n"
 
-        # ইনসাইট লাইন ব্রেক
         insight_lines = []
-        for j in range(0, len(insight), 68):
-            insight_lines.append(insight[j:j+68])
+        for j in range(0, len(insight), 70):
+            insight_lines.append(insight[j:j+70])
 
         for idx, line in enumerate(insight_lines):
             if idx == 0:
-                result += f"║ 💡 ইনসাইট     : {line}\n"
+                result += f"║ 💡 ইনসাইট  : {line}\n"
             else:
-                result += f"║                {line}\n"
+                result += f"║              {line}\n"
 
         result += f"╚══════════════════════════════════════════════════════════════════════════════╝\n\n"
 
     result += "```"
     return result
 
-# ==================== UPDATED VIEW COMMAND ====================
+async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("⚠️ আজকের সব ডাটা মুছে যাবে। `/yesclear` দিয়ে কনফার্ম করুন।", parse_mode='Markdown')
+    context.user_data['confirm'] = True
+
+async def yesclear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get('confirm'):
+        result = bot.clear_current_data()
+        await update.message.reply_text(result)
+        context.user_data['confirm'] = False
+    else:
+        await update.message.reply_text("❌ আগে `/clear` দিন।", parse_mode='Markdown')
+
+async def files_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """সব CSV ফাইলের তালিকা দেখান"""
+    dates = hf_manager.get_all_csv_files()
+
+    if not dates:
+        await update.message.reply_text("📭 কোনো CSV ফাইল নেই।")
+        return
+
+    table = format_files_table(dates)
+    await update.message.reply_text(table, parse_mode='Markdown')
+
+def format_files_table(dates):
+    """ফাইলের তালিকা দেখান"""
+    if not dates:
+        return "📭 কোনো CSV ফাইল নেই।"
+
+    table = f"📁 **CSV ফাইলের তালিকা ({len(dates)} টি):**\n\n```\n"
+    table += f"{'ক্রম':<6} {'ফাইলের নাম':<20} {'তারিখ':<12}\n"
+    table += "-" * 38 + "\n"
+
+    for i, date in enumerate(dates):
+        table += f"{i+1:<6} {date}.csv{' ':<{20-len(date)-4}} {date:<12}\n"
+
+    table += "```"
+    return table
 
 async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """নির্দিষ্ট তারিখের CSV ফাইল দেখান - এলিয়ট ওয়েব এবং সাব-ওয়েব সহ"""
+    """নির্দিষ্ট তারিখের CSV ফাইল দেখান - শুধু সেই তারিখের ডাটা"""
     if not context.args:
         await update.message.reply_text(
             "❌ 📅 তারিখ দিন। উদাহরণ: `/view 25-03-2026` অথবা `/view 25-03-2026 2`\n\n"
-            "📌 পৃষ্ঠা নম্বর না দিলে 1 নম্বর পৃষ্ঠা দেখাবে।\n\n"
-            "🌊 **ওয়েভ ইমোজি বুঝতে সাহায্য:**\n"
-            "⚡ = ইম্পালস ওয়েভ | 🌀 = করেকটিভ ওয়েভ\n"
-            "📈 = আপট্রেন্ড সাব-ওয়েব | 📉 = ডাউনট্রেন্ড সাব-ওয়েব | 🔄 = করেকটিভ সাব-ওয়েব",
+            "📌 পৃষ্ঠা নম্বর না দিলে 1 নম্বর পৃষ্ঠা দেখাবে।",
             parse_mode='Markdown'
         )
         return
@@ -539,33 +1129,32 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         table = format_as_table(page_data, f"{date}.csv", offset, total_records, page, total_pages)
 
-        # নেভিগেশন বার তৈরি
         nav_parts = []
 
         if page > 1:
-            nav_parts.append(f"[◀️ Prev](/view {date} {page-1})")
+            nav_parts.append(f"[◀️](/view {date} {page-1})")
         else:
             nav_parts.append("◀️")
 
-        if total_pages <= 10:
+        if total_pages <= 7:
             for p in range(1, total_pages + 1):
                 if p == page:
                     nav_parts.append(f"**{p}**")
                 else:
                     nav_parts.append(f"[{p}](/view {date} {p})")
         else:
-            if page <= 5:
-                for p in range(1, 7):
+            if page <= 4:
+                for p in range(1, 6):
                     if p == page:
                         nav_parts.append(f"**{p}**")
                     else:
                         nav_parts.append(f"[{p}](/view {date} {p})")
                 nav_parts.append("...")
                 nav_parts.append(f"[{total_pages}](/view {date} {total_pages})")
-            elif page >= total_pages - 4:
+            elif page >= total_pages - 3:
                 nav_parts.append(f"[1](/view {date} 1)")
                 nav_parts.append("...")
-                for p in range(total_pages - 5, total_pages + 1):
+                for p in range(total_pages - 4, total_pages + 1):
                     if p == page:
                         nav_parts.append(f"**{p}**")
                     else:
@@ -573,7 +1162,7 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 nav_parts.append(f"[1](/view {date} 1)")
                 nav_parts.append("...")
-                for p in range(page - 2, page + 3):
+                for p in range(page - 1, page + 2):
                     if p == page:
                         nav_parts.append(f"**{p}**")
                     else:
@@ -582,7 +1171,7 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 nav_parts.append(f"[{total_pages}](/view {date} {total_pages})")
 
         if page < total_pages:
-            nav_parts.append(f"[Next ▶️](/view {date} {page+1})")
+            nav_parts.append(f"[▶️](/view {date} {page+1})")
         else:
             nav_parts.append("▶️")
 
@@ -604,247 +1193,229 @@ async def view_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         traceback.print_exc()
         await status_msg.edit_text(f"❌ ত্রুটি: {str(e)[:200]}")
 
-# ==================== NEW COMMAND: WAVE SUMMARY ====================
-
-async def wavesummary_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ওয়েভ এবং সাব-ওয়েব সারাংশ দেখান"""
+async def deletefile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """নির্দিষ্ট তারিখের CSV ফাইল ডিলিট করুন"""
     if not context.args:
+        await update.message.reply_text("❌ তারিখ দিন। উদাহরণ: `/deletefile 25-03-2026`")
+        return
+
+    date = fix_date_format(context.args[0])
+    context.user_data['delete_file'] = date
+    await update.message.reply_text(
+        f"⚠️ আপনি কি নিশ্চিত? `{date}.csv` ফাইলটি স্থায়ীভাবে মুছে যাবে!\n\n"
+        f"✅ হ্যাঁ হলে: `/confirmdelete`\n"
+        f"❌ না হলে: `/cancel`",
+        parse_mode='Markdown'
+    )
+
+async def confirmdelete_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ফাইল ডিলিট কনফার্ম"""
+    date = context.user_data.get('delete_file')
+    if not date:
+        await update.message.reply_text("❌ আগে `/deletefile` দিন।")
+        return
+
+    success, msg = hf_manager.delete_csv_file(date)
+    await update.message.reply_text(msg)
+    context.user_data['delete_file'] = None
+
+async def symbols_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ফাইলের সিম্বল লিস্ট দেখান"""
+    if context.args:
+        date = fix_date_format(context.args[0])
+    else:
+        date = bot.current_date
+
+    status_msg = await update.message.reply_text(f"⏳ `{date}.csv` ফাইল থেকে সিম্বল খুঁজছি...", parse_mode='Markdown')
+
+    data = hf_manager.read_csv_file(date)
+
+    if data is None:
+        dates = hf_manager.get_all_csv_files()
+        if dates:
+            file_list = "\n".join([f"• `{d}.csv`" for d in dates[:10]])
+            await status_msg.edit_text(
+                f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।\n\n"
+                f"📁 **আপনার ফাইলগুলি:**\n{file_list}",
+                parse_mode='Markdown'
+            )
+        else:
+            await status_msg.edit_text(f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।", parse_mode='Markdown')
+        return
+
+    if not data:
+        await status_msg.edit_text(f"📭 `{date}.csv` ফাইলটি খালি।", parse_mode='Markdown')
+        return
+
+    start_idx = 0
+    if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
+        start_idx = 1
+
+    symbols_with_scores = []
+    for row in data[start_idx:]:
+        if row and len(row) > 0:
+            symbol = row[0]
+            score = row[9] if len(row) > 9 else "-"
+            score_emoji = get_score_emoji(score)
+            symbols_with_scores.append(f"{symbol} {score_emoji}")
+
+    if not symbols_with_scores:
+        await status_msg.edit_text(f"📭 `{date}.csv` ফাইলে কোনো সিম্বল নেই।", parse_mode='Markdown')
+        return
+
+    symbol_lines = []
+    for i in range(0, len(symbols_with_scores), 4):
+        batch = symbols_with_scores[i:i+4]
+        symbol_lines.append(" | ".join(batch))
+
+    symbol_list = "\n".join([f"{i+1:3}. {line}" for i, line in enumerate(symbol_lines)])
+
+    await status_msg.edit_text(
+        f"📋 **{date}.csv - সিম্বল লিস্ট ({len(symbols_with_scores)} টি):**\n\n{symbol_list}\n\n"
+        f"💡 সিম্বল ডিলিট: `/deletesymbol {date} [সিম্বল]`\n"
+        f"💡 সম্পূর্ণ ইনসাইট: `/insight [সিম্বল] {date}`\n\n"
+        f"📊 **স্কোর রেটিং:** 💎85+ 🔥80-84 ⭐70-79 ✅60-69 📈50-59 ⚠️40-49 ❌<40",
+        parse_mode='Markdown'
+    )
+
+async def deletesymbol_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """নির্দিষ্ট সিম্বল ডিলিট করুন"""
+    if len(context.args) < 2:
         await update.message.reply_text(
-            "❌ 📅 তারিখ দিন। উদাহরণ: `/wavesummary 25-03-2026`\n\n"
-            "এটি এলিয়ট ওয়েব এবং সাব-ওয়েবের সারাংশ দেখাবে।",
+            "❌ তারিখ এবং সিম্বল দিন। উদাহরণ: `/deletesymbol 25-03-2026 ADVENT`",
             parse_mode='Markdown'
         )
         return
 
     date = fix_date_format(context.args[0])
-    
-    status_msg = await update.message.reply_text(f"⏳ `{date}.csv` ফাইল অ্যানালাইসিস করা হচ্ছে...", parse_mode='Markdown')
-    
-    data = hf_manager.read_csv_file(date)
-    
-    if data is None:
-        await status_msg.edit_text(f"❌ `{date}.csv` ফাইল পাওয়া যায়নি।", parse_mode='Markdown')
-        return
-    
-    start_idx = 0
-    if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
-        start_idx = 1
-    
-    all_data = data[start_idx:]
-    
-    if not all_data:
-        await status_msg.edit_text(f"📭 `{date}.csv` ফাইলে কোনো ডাটা নেই।", parse_mode='Markdown')
-        return
-    
-    # ওয়েভ এবং সাব-ওয়েব বিশ্লেষণ
-    impulse_waves = []
-    corrective_waves = []
-    wave_patterns = {}
-    subwave_patterns = {}
-    wave_subwave_list = []
-    
-    for row in all_data:
-        symbol = row[0] if len(row) > 0 else "-"
-        wave = row[1] if len(row) > 1 else "-"
-        subwave = row[2] if len(row) > 2 else "-"
-        score = row[9] if len(row) > 9 else "-"
-        
-        wave_subwave_list.append({
-            'symbol': symbol,
-            'wave': wave,
-            'subwave': subwave,
-            'score': score
-        })
-        
-        if "Impulse" in wave:
-            impulse_waves.append((symbol, wave, subwave, score))
-        elif "Corrective" in wave:
-            corrective_waves.append((symbol, wave, subwave, score))
-        
-        if wave != "-":
-            wave_patterns[wave] = wave_patterns.get(wave, 0) + 1
-        
-        if subwave != "-":
-            subwave_patterns[subwave] = subwave_patterns.get(subwave, 0) + 1
-    
-    # রিপোর্ট তৈরি
-    result = f"📊 **{date}.csv - এলিয়ট ওয়েভ অ্যানালাইসিস**\n\n"
-    result += "```\n"
-    result += f"{'ক্রম':<6} {'সিম্বল':<12} {'এলিয়ট ওয়েব':<28} {'সাব-ওয়েব':<28} {'স্কোর'}\n"
-    result += "-" * 90 + "\n"
-    
-    for i, item in enumerate(wave_subwave_list[:20]):
-        wave_display = item['wave'][:25] + ".." if len(item['wave']) > 27 else item['wave']
-        subwave_display = item['subwave'][:25] + ".." if len(item['subwave']) > 27 else item['subwave']
-        score_emoji = get_score_emoji(item['score'])
-        result += f"{i+1:<6} {item['symbol']:<12} {wave_display:<28} {subwave_display:<28} {item['score']}/100 {score_emoji}\n"
-    
-    result += "```\n\n"
-    
-    # সারাংশ
-    result += f"📈 **ইম্পালস ওয়েভ ({len(impulse_waves)} টি):**\n"
-    if impulse_waves:
-        for sym, wave, subwave, score in impulse_waves[:10]:
-            score_emoji = get_score_emoji(score)
-            result += f"• {sym}: {subwave} [{score}/100 {score_emoji}]\n"
-        if len(impulse_waves) > 10:
-            result += f"• ... এবং {len(impulse_waves) - 10} টি অন্যান্য\n"
-    else:
-        result += "• কোনো ইম্পালস ওয়েভ নেই\n"
-    
-    result += f"\n🔄 **করেকটিভ ওয়েভ ({len(corrective_waves)} টি):**\n"
-    if corrective_waves:
-        for sym, wave, subwave, score in corrective_waves[:10]:
-            score_emoji = get_score_emoji(score)
-            result += f"• {sym}: {subwave} [{score}/100 {score_emoji}]\n"
-        if len(corrective_waves) > 10:
-            result += f"• ... এবং {len(corrective_waves) - 10} টি অন্যান্য\n"
-    else:
-        result += "• কোনো করেকটিভ ওয়েভ নেই\n"
-    
-    if wave_patterns:
-        result += f"\n🔝 **টপ ওয়েভ প্যাটার্ন:**\n"
-        sorted_waves = sorted(wave_patterns.items(), key=lambda x: x[1], reverse=True)[:5]
-        for pattern, count in sorted_waves:
-            result += f"• {pattern}: {count} টি\n"
-    
-    if subwave_patterns:
-        result += f"\n📍 **টপ সাব-ওয়েব প্যাটার্ন:**\n"
-        sorted_subwaves = sorted(subwave_patterns.items(), key=lambda x: x[1], reverse=True)[:5]
-        for pattern, count in sorted_subwaves:
-            result += f"• {pattern}: {count} টি\n"
-    
-    await status_msg.edit_text(result, parse_mode='Markdown')
+    symbol = context.args[1].upper()
 
-# ==================== UPDATED LIST COMMAND ====================
+    await update.message.reply_text(f"⏳ '{symbol}' ডিলিট করা হচ্ছে...")
+    success, msg = hf_manager.delete_symbol_from_file(date, symbol)
+    await update.message.reply_text(msg)
 
-async def list_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """আজকের ডাটা দেখান - এলিয়ট ওয়েব এবং সাব-ওয়েব সহ"""
-    if not bot.current_data:
-        await update.message.reply_text(f"📭 {bot.current_date} তারিখের কোনো ডাটা নেই।")
+async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """সব ফাইলে সিম্বল খুঁজুন"""
+    if not context.args:
+        await update.message.reply_text("❌ সিম্বল দিন। উদাহরণ: `/search ADVENT`")
         return
 
-    table = format_as_table(bot.current_data, f"{bot.current_date} - আজকের ডাটা", 0, len(bot.current_data), 1, 1)
+    search_symbol = context.args[0].upper()
+    status_msg = await update.message.reply_text(f"🔍 '{search_symbol}' খুঁজছি... দয়া করে অপেক্ষা করুন।")
 
-    if len(table) > 4000:
-        parts = [table[i:i+4000] for i in range(0, len(table), 4000)]
-        for part in parts:
-            await update.message.reply_text(part, parse_mode='Markdown')
-    else:
-        await update.message.reply_text(table, parse_mode='Markdown')
+    try:
+        dates = hf_manager.get_all_csv_files()
 
-# ==================== UPDATED START COMMAND ====================
+        if not dates:
+            await status_msg.edit_text("📭 কোনো CSV ফাইল নেই। প্রথমে কিছু ডাটা যোগ করুন।")
+            return
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🤖 **স্টক ডাটা বট - Hugging Face স্টোরেজ**\n\n"
-        "📝 **ডাটা যোগ করুন (11 কলাম):**\n"
-        "`ADVENT,Impulse (Up),Wave 5 of 3,13.8-14.2,13.2,15.0,16.0,17.5,1:2.5,68,মূল্য 13.0 টাকার নিচে ব্রেক করতে পারেনি...`\n\n"
-        "📚 **বেসিক কমান্ড:**\n"
-        "`/help` - সব কমান্ড দেখুন\n"
-        "`/list` - আজকের ডাটা দেখুন (ওয়েব + সাব-ওয়েব সহ)\n"
-        "`/portfolio` - পোর্টফোলিও অ্যানালাইসিস (ইনলাইন বাটন সহ)\n"
-        "`/trademenu` - ট্রেডিং অ্যানালাইটিক্স (ইনলাইন বাটন সহ)\n"
-        "`/insight [সিম্বল] [তারিখ]` - সম্পূর্ণ ইনসাইট দেখুন\n"
-        "`/files` - সব CSV ফাইলের তালিকা\n"
-        "`/view [তারিখ] [পৃষ্ঠা]` - কার্ড স্টাইলে ফাইল দেখুন (ওয়েব + সাব-ওয়েব সহ)\n"
-        "`/wavesummary [তারিখ]` - ওয়েভ এবং সাব-ওয়েব সারাংশ\n"
-        "`/symbols [তারিখ]` - ফাইলের সিম্বল দেখুন\n"
-        "`/search [সিম্বল]` - সব ফাইলে সিম্বল খুঁজুন\n"
-        "`/deletesymbol [তারিখ] [সিম্বল]` - সিম্বল ডিলিট\n"
-        "`/deletefile [তারিখ]` - ফাইল ডিলিট\n"
-        "`/clear` - আজকের ডাটা ক্লিয়ার\n"
-        "`/status` - স্ট্যাটাস দেখুন\n"
-        "`/reload` - ডাটা রিলোড করুন\n\n"
-        "📊 **অ্যাডভান্সড কমান্ড:**\n"
-        "`/chart [তারিখ]` - স্কোর ডিস্ট্রিবিউশন চার্ট\n"
-        "`/compare [তারিখ1] [তারিখ2]` - পোর্টফোলিও তুলনা\n"
-        "`/backtest [স্টার্ট] [এন্ড] [স্কোর]` - ব্যাকটেস্টিং\n"
-        "`/export [তারিখ]` - CSV এক্সপোর্ট\n"
-        "`/setalert [স্কোর]` - অ্যালার্ট সেট করুন\n\n"
-        "🌊 **ওয়েভ ইমোজি বুঝতে সাহায্য:**\n"
-        "⚡ = ইম্পালস ওয়েভ | 🌀 = করেকটিভ ওয়েভ\n"
-        "📈 = আপট্রেন্ড সাব-ওয়েব | 📉 = ডাউনট্রেন্ড সাব-ওয়েব | 🔄 = করেকটিভ সাব-ওয়েব\n\n"
-        "📊 **স্কোর রেটিং:**\n"
-        "💎 85+ এক্সট্রিম | 🔥 80-84 খুব শক্তিশালী | ⭐ 70-79 শক্তিশালী\n"
-        "✅ 60-69 ভাল | 📈 50-59 মধ্যম | ⚠️ 40-49 দুর্বল | ❌ <40 খুব দুর্বল",
-        parse_mode='Markdown'
-    )
+        results = hf_manager.search_symbol_all_files(search_symbol)
+        table = get_search_results_table(results, search_symbol)
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    help_text = """
-📚 **স্টক ডাটা বট - সম্পূর্ণ গাইড**
+        if len(table) > 4000:
+            parts = [table[i:i+4000] for i in range(0, len(table), 4000)]
+            await status_msg.delete()
+            for part in parts:
+                await update.message.reply_text(part, parse_mode='Markdown')
+        else:
+            await status_msg.edit_text(table, parse_mode='Markdown')
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📝 **ডাটা যোগ করার নিয়ম (11 কলাম)**
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-`ADVENT,Impulse (Up),Wave 5 of 3,13.8-14.2,13.2,15.0,16.0,17.5,1:2.5,68,মূল্য 13.0 টাকার নিচে ব্রেক করতে পারেনি...`
+    except Exception as e:
+        await status_msg.edit_text(f"❌ ত্রুটি: {str(e)}")
 
-**কলামের ক্রম:**
-1. symbol | 2. এলিয়ট ওয়েব | 3. সাব-ওয়েব | 4. এন্ট্রি | 5. স্টপ
-6. TP1 | 7. TP2 | 8. TP3 | 9. RRR | 10. স্কোর | 11. কুইক ইনসাইট
+def get_search_results_table(results, search_symbol):
+    """সার্চ রেজাল্ট দেখান"""
+    if not results:
+        return f"❌ '{search_symbol}' কোনো ফাইলে পাওয়া যায়নি।"
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🌊 **ওয়েভ ভিজুয়ালাইজেশন**
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• `/view 29-03-2026` - এলিয়ট ওয়েব + সাব-ওয়েব সহ দেখাবে
-• `/wavesummary 29-03-2026` - ওয়েভ এবং সাব-ওয়েব সারাংশ
-• `/list` - আজকের ডাটা ওয়েব + সাব-ওয়েব সহ দেখাবে
+    headers = ["#", "তারিখ", "সিম্বল", "এলিয়ট ওয়েব", "সাব-ওয়েব", "এন্ট্রি", "স্কোর"]
+    col_widths = [4, 12, 12, 18, 15, 12, 6]
 
-**ওয়েভ ইমোজি বুঝতে সাহায্য:**
-⚡ = ইম্পালস ওয়েভ (আপট্রেন্ড)
-🌀 = করেকটিভ ওয়েভ (ডাউনট্রেন্ড/কনসলিডেশন)
-📈 = আপট্রেন্ড সাব-ওয়েব (ওয়েভ 1,3,5)
-📉 = ডাউনট্রেন্ড সাব-ওয়েব (ওয়েভ 2,4)
-🔄 = করেকটিভ সাব-ওয়েব (ওয়েভ A,B,C)
+    table = f"🔍 **'{search_symbol}' পাওয়া গেছে {len(results)} টি ফাইলে:**\n\n```\n"
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 **অ্যাডভান্সড ফিচার**
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• `/chart 29-03-2026` - স্কোর ডিস্ট্রিবিউশন চার্ট
-• `/compare 25-03-2026 29-03-2026` - পোর্টফোলিও তুলনা
-• `/backtest 01-03-2026 29-03-2026 70` - ব্যাকটেস্টিং
-• `/export 29-03-2026` - CSV এক্সপোর্ট
-• `/setalert 70` - 70+ স্কোরের অ্যালার্ট
+    header_line = ""
+    for i, header in enumerate(headers):
+        header_line += f"{header:<{col_widths[i]}}"
+    table += header_line + "\n"
+    table += "-" * sum(col_widths) + "\n"
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔍 **ইনসাইট দেখার নিয়ম**
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• `/insight ADVENT` - সর্বশেষ ফাইল থেকে দেখাবে
-• `/insight ADVENT 25-03-2026` - নির্দিষ্ট তারিখের ফাইল থেকে দেখাবে
+    for i, r in enumerate(results):
+        line = f"{i+1:<{col_widths[0]}}"
+        line += f"{r['date'][:col_widths[1]]:<{col_widths[1]}}"
+        line += f"{r['row'][0][:col_widths[2]]:<{col_widths[2]}}"
+        line += f"{r['row'][1][:col_widths[3]]:<{col_widths[3]}}" if len(r['row']) > 1 else f"{'':<{col_widths[3]}}"
+        line += f"{r['row'][2][:col_widths[4]]:<{col_widths[4]}}" if len(r['row']) > 2 else f"{'':<{col_widths[4]}}"
+        line += f"{r['row'][3][:col_widths[5]]:<{col_widths[5]}}" if len(r['row']) > 3 else f"{'':<{col_widths[5]}}"
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📁 **ফাইল ম্যানেজমেন্ট**
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• `/files` - সব CSV ফাইলের তালিকা
-• `/view 25-03-2026` - প্রথম পৃষ্ঠা দেখাবে (ওয়েব+সাব-ওয়েব সহ)
-• `/view 25-03-2026 2` - দ্বিতীয় পৃষ্ঠা দেখাবে
-• `/deletefile 25-03-2026` - ফাইল ডিলিট
+        score = r['row'][9] if len(r['row']) > 9 else "-"
+        score_emoji = get_score_emoji(score)
+        line += f"{score}/100 {score_emoji}"
+        table += line + "\n"
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔍 **সিম্বল ম্যানেজমেন্ট**
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• `/symbols 25-03-2026` - সিম্বল লিস্ট
-• `/deletesymbol 25-03-2026 ADVENT` - সিম্বল ডিলিট
-• `/search ADVENT` - সব ফাইলে খুঁজুন
+    table += "```"
+    return table
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 **স্কোর রেটিং চার্ট**
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💎 85-100 : এক্সট্রিম শক্তিশালী
-🔥 80-84  : খুব শক্তিশালী
-⭐ 70-79  : শক্তিশালী
-✅ 60-69  : ভাল
-📈 50-59  : মধ্যম
-⚠️ 40-49  : দুর্বল
-❌ <40    : খুব দুর্বল
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """বটের স্ট্যাটাস দেখান"""
+    dates = hf_manager.get_all_csv_files()
+
+    status_text = f"""
+📊 **বট স্ট্যাটাস**
+
+📁 Hugging Face: `{HF_REPO}/{HF_FOLDER}/`
+🔑 HF_TOKEN: {'✅ সেট আছে' if HF_TOKEN else '❌ সেট নেই'}
+
+📅 আজকের তারিখ: `{bot.current_date}`
+📝 আজকের রেকর্ড: `{len(bot.current_data)}` টি
+📋 মোট কলাম: `{len(COLUMNS)}` টি
+
+📂 মোট CSV ফাইল: `{len(dates)}` টি
 """
-    await update.message.reply_text(help_text, parse_mode='Markdown')
 
-# Keep all other existing handlers (insight_command, handle_message, clear_command, 
-# yesclear_command, files_command, symbols_command, deletesymbol_command,
-# search_command, status_command, cancel_command, reload_command, portfolio_command,
-# and all callback handlers, etc.) - they remain unchanged
+    if dates:
+        status_text += f"\n📄 সর্বশেষ ৫টি ফাইল:\n"
+        for date in dates[:5]:
+            status_text += f"   • `{date}.csv`\n"
+
+    await update.message.reply_text(status_text, parse_mode='Markdown')
+
+async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """অপারেশন বাতিল করুন"""
+    context.user_data.clear()
+    await update.message.reply_text("✅ অপারেশন বাতিল করা হয়েছে।")
+
+async def reload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Hugging Face থেকে আজকের ডাটা রিলোড করুন"""
+    await update.message.reply_text("⏳ ডাটা রিলোড করা হচ্ছে...")
+    bot.load_current_data()
+    if bot.current_data:
+        await update.message.reply_text(f"✅ {len(bot.current_data)} টি রেকর্ড রিলোড হয়েছে।")
+    else:
+        await update.message.reply_text("✅ আজকের ডাটা খালি করা হয়েছে।")
+
+# ==================== FLASK ROUTES ====================
+
+@app.route('/')
+def home():
+    return jsonify({
+        "status": "active",
+        "bot": "Stock Data Bot with Portfolio Analytics, Trade Analytics & Advanced Features",
+        "hf_repo": HF_REPO,
+        "today_records": len(bot.current_data),
+        "columns": len(COLUMNS),
+        "columns_list": COLUMNS,
+        "features": ["Chart", "Compare", "Backtest", "Export", "Alert"],
+        "time": datetime.now().isoformat()
+    })
+
+@app.route('/health')
+def health():
+    return jsonify({"status": "healthy"})
+
+@app.route('/files')
+def get_files():
+    return jsonify({"files": hf_manager.get_all_csv_files()})
 
 # ==================== MAIN ====================
 
@@ -866,8 +1437,7 @@ async def run_bot():
         application.add_handler(CommandHandler("clear", clear_command))
         application.add_handler(CommandHandler("yesclear", yesclear_command))
         application.add_handler(CommandHandler("files", files_command))
-        application.add_handler(CommandHandler("view", view_command))  # UPDATED
-        application.add_handler(CommandHandler("wavesummary", wavesummary_command))  # NEW
+        application.add_handler(CommandHandler("view", view_command))
         application.add_handler(CommandHandler("deletefile", deletefile_command))
         application.add_handler(CommandHandler("confirmdelete", confirmdelete_command))
         application.add_handler(CommandHandler("symbols", symbols_command))
@@ -899,7 +1469,7 @@ async def run_bot():
 
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-        print("🤖 Telegram Bot starting with Wave + Subwave display...")
+        print("🤖 Telegram Bot starting with Inline Buttons, Trade Analytics & Advanced Features...")
         await application.initialize()
         await application.start()
         await application.updater.start_polling()
