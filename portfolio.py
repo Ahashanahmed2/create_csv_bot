@@ -1,4 +1,4 @@
-# portfolio.py - পোর্টফোলিও অ্যানালাইটিক্স মডিউল (সাব-ওয়েব সহ) - সম্পূর্ণ আপডেট
+# portfolio.py - সম্পূর্ণ আপডেটেড (স্কোর এবং সাব-ওয়েব ঠিক করা)
 
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -39,7 +39,9 @@ class PortfolioAnalyzer:
         """স্কোর অনুযায়ী ক্যাটাগরি নির্ধারণ"""
         try:
             # Remove % sign if present
-            score_str = str(score_str).replace('%', '')
+            score_str = str(score_str).replace('%', '').strip()
+            if not score_str:
+                return "medium"
             score = int(score_str)
             if score >= 80:
                 return "very_strong"
@@ -55,7 +57,9 @@ class PortfolioAnalyzer:
     def get_score_emoji(self, score):
         """স্কোর অনুযায়ী ইমোজি"""
         try:
-            score_str = str(score).replace('%', '')
+            score_str = str(score).replace('%', '').strip()
+            if not score_str:
+                return "📊"
             score_num = int(score_str)
             if score_num >= 85:
                 return "💎"
@@ -101,7 +105,17 @@ class PortfolioAnalyzer:
                 continue
 
             symbol = row[0] if len(row) > 0 else "Unknown"
-            score_str = row[9] if len(row) > 9 else "0"
+            
+            # স্কোর সঠিকভাবে নিন (কলাম 9, index 9)
+            score_str = "-"
+            if len(row) > 9:
+                raw_score = row[9]
+                if raw_score and raw_score.strip():
+                    # Remove any % sign and clean
+                    score_str = raw_score.strip().replace('%', '')
+                else:
+                    score_str = "-"
+            
             rrr_str = row[8] if len(row) > 8 else "1:0"
             wave_text = row[1] if len(row) > 1 else ""
             
@@ -117,34 +131,37 @@ class PortfolioAnalyzer:
             else:
                 sub_wave = "-"
             
-            print(f"📊 {symbol}: wave={wave_text}, subwave='{sub_wave}', score={score_str}")
+            print(f"📊 {symbol}: wave={wave_text}, subwave='{sub_wave}', score='{score_str}'")
 
             # স্কোর অনুযায়ী ক্যাটাগরি
             category = self.categorize_by_score(score_str)
             try:
-                score_val = int(str(score_str).replace('%', ''))
+                if score_str != "-":
+                    score_val = int(score_str)
+                else:
+                    score_val = 0
             except:
                 score_val = 0
 
             if category == "very_strong":
                 stats['very_strong']['count'] += 1
                 stats['very_strong']['symbols'].append(symbol)
-                stats['very_strong']['scores'].append(score_val)
+                stats['very_strong']['scores'].append(score_str)
                 stats['very_strong']['subwaves'].append(sub_wave)
             elif category == "good":
                 stats['good']['count'] += 1
                 stats['good']['symbols'].append(symbol)
-                stats['good']['scores'].append(score_val)
+                stats['good']['scores'].append(score_str)
                 stats['good']['subwaves'].append(sub_wave)
             elif category == "medium":
                 stats['medium']['count'] += 1
                 stats['medium']['symbols'].append(symbol)
-                stats['medium']['scores'].append(score_val)
+                stats['medium']['scores'].append(score_str)
                 stats['medium']['subwaves'].append(sub_wave)
             else:
                 stats['weak']['count'] += 1
                 stats['weak']['symbols'].append(symbol)
-                stats['weak']['scores'].append(score_val)
+                stats['weak']['scores'].append(score_str)
                 stats['weak']['subwaves'].append(sub_wave)
 
             # ওয়েভ টাইপ
@@ -184,7 +201,6 @@ class PortfolioAnalyzer:
         print(f"   Good: {stats['good']['count']} symbols")
         print(f"   Medium: {stats['medium']['count']} symbols")
         print(f"   Weak: {stats['weak']['count']} symbols")
-        print(f"   Sample subwaves: {stats['medium']['subwaves'][:3] if stats['medium']['subwaves'] else []}")
 
         return stats
 
@@ -258,7 +274,7 @@ class PortfolioAnalyzer:
         return report, reply_markup
 
     def format_symbols_with_buttons(self, symbols_data, title, date, category, page, total_pages, items_per_page=10):
-        """সিম্বল লিস্ট ইনলাইন বাটন সহ - সাব-ওয়েব সহ"""
+        """সিম্বল লিস্ট ইনলাইন বাটন সহ - স্কোর এবং সাব-ওয়েব সহ"""
         if not symbols_data:
             return f"📭 {title} - কোনো সিম্বল নেই।", None
 
@@ -294,29 +310,31 @@ class PortfolioAnalyzer:
 
         for i, item in enumerate(page_data):
             serial = start + i + 1
-            if len(item) == 3:  # (symbol, score, subwave)
+            
+            # Handle different data formats
+            if len(item) == 3:
                 symbol, score, subwave = item
-            elif len(item) == 2:  # (symbol, score) fallback
+            elif len(item) == 2:
                 symbol, score = item
                 subwave = "-"
             else:
-                symbol, score = item, "-"
-                subwave = "-"
+                symbol = item[0] if len(item) > 0 else "?"
+                score = item[1] if len(item) > 1 else "-"
+                subwave = item[2] if len(item) > 2 else "-"
 
-            # Clean subwave - keep original text
+            # Clean subwave - keep full text
             if subwave and subwave.strip() and subwave.strip() != "":
-                subwave_display = subwave
+                subwave_display = subwave.strip()
             else:
                 subwave_display = "-"
 
-            # Clean score (remove %)
-            score_display = str(score).replace('%', '') if score != "-" else "-"
-            emoji_score = self.get_score_emoji(score) if score != "-" else "📊"
-            
-            if score != "-":
+            # Clean score
+            if score and score != "-" and str(score).strip():
+                score_display = str(score).replace('%', '').strip()
+                emoji_score = self.get_score_emoji(score)
                 result += f"{serial:<6} {symbol:<15} {score_display}/100 {emoji_score:<5} {subwave_display:<25}\n"
             else:
-                result += f"{serial:<6} {symbol:<15} {'':<10} {emoji_score:<5} {subwave_display:<25}\n"
+                result += f"{serial:<6} {symbol:<15} {'':<10} 📊{' ':<4} {subwave_display:<25}\n"
 
         result += "```\n\n"
 
@@ -377,17 +395,23 @@ class PortfolioAnalyzer:
         """সিম্বলের বিস্তারিত তথ্য সংগ্রহ করুন"""
         for idx, row in enumerate(all_data):
             if row[0] == symbol:
-                score_str = row[9] if len(row) > 9 else "0"
-                # Remove % from score
-                score_str_clean = str(score_str).replace('%', '')
+                # স্কোর সঠিকভাবে নিন
+                score_str = "-"
+                if len(row) > 9:
+                    raw_score = row[9]
+                    if raw_score and raw_score.strip():
+                        score_str = raw_score.strip().replace('%', '')
+                    else:
+                        score_str = "-"
+                
                 try:
-                    score_val = int(score_str_clean)
+                    score_val = int(score_str) if score_str != "-" else 0
                 except:
                     score_val = 0
                 
-                # সাব-ওয়েব নিন - keep original text
+                # সাব-ওয়েব নিন
                 sub_wave = "-"
-                if len(row) > 2 and row[2] and row[2].strip() and row[2].strip() != "":
+                if len(row) > 2 and row[2] and row[2].strip():
                     sub_wave = row[2].strip()
 
                 return {
