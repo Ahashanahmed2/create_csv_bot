@@ -1,3 +1,5 @@
+# main.py - FastAPI + Telegram Bot for Render
+
 import os
 import csv
 import json
@@ -7,7 +9,10 @@ import io
 import tempfile
 import re
 from datetime import datetime
-from flask import Flask, jsonify
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
+from contextlib import asynccontextmanager
+import uvicorn
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from huggingface_hub import HfApi, upload_file, list_repo_files, delete_file, hf_hub_download
@@ -21,8 +26,6 @@ from advanced_features import (
     AdvancedFeatures, chart_command, compare_command, 
     notify_command, setalert_command, backtest_command, export_command
 )
-
-app = Flask(__name__)
 
 # Hugging Face configuration
 HF_TOKEN = os.environ.get("HF_TOKEN")
@@ -400,367 +403,6 @@ async def backtest_command_wrapper(update: Update, context: ContextTypes.DEFAULT
 async def export_command_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await export_command(update, context, hf_manager)
 
-# ==================== PORTFOLIO HANDLERS WITH INLINE BUTTONS ====================
-
-async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """পোর্টফোলিও রিপোর্ট ইনলাইন বাটন সহ দেখান"""
-    args = context.args
-
-    if args:
-        date_input = args[0]
-        date = fix_date_format(date_input)
-    else:
-        files = hf_manager.get_all_csv_files()
-        if files:
-            date = files[0]
-        else:
-            await update.message.reply_text("❌ কোনো CSV ফাইল নেই।")
-            return
-
-    status_msg = await update.message.reply_text(f"⏳ পোর্টফোলিও অ্যানালাইসিস করা হচ্ছে ({date})...")
-
-    data = hf_manager.read_csv_file(date)
-
-    if data is None:
-        await status_msg.edit_text(f"❌ {date}.csv ফাইল পাওয়া যায়নি।")
-        return
-
-    start_idx = 0
-    if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
-        start_idx = 1
-
-    all_data = data[start_idx:]
-
-    if not all_data:
-        await status_msg.edit_text(f"📭 {date}.csv ফাইলে কোনো ডাটা নেই।")
-        return
-
-    stats = portfolio_analyzer.analyze_portfolio(all_data)
-
-    if not stats:
-        await status_msg.edit_text("❌ অ্যানালাইসিস করতে ব্যর্থ হয়েছে।")
-        return
-
-    report, reply_markup = portfolio_analyzer.format_portfolio_report_with_buttons(stats, date)
-
-    await status_msg.edit_text(report, parse_mode='Markdown', reply_markup=reply_markup)
-
-async def category_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ক্যাটাগরি বাটনের কলব্যাক হ্যান্ডলার - সাব-ওয়েব সহ"""
-    query = update.callback_query
-    await query.answer()
-
-    data = query.data
-    parts = data.split('_')
-
-    category = parts[0]
-    date = parts[1]
-    page = int(parts[2]) if len(parts) > 2 else 1
-
-    context.user_data['last_view'] = {'category': category, 'date': date, 'page': page}
-
-    csv_data = hf_manager.read_csv_file(date)
-
-    if csv_data is None:
-        await query.edit_message_text(f"❌ {date}.csv ফাইল পাওয়া যায়নি।")
-        return
-
-    start_idx = 0
-    if csv_data and csv_data[0] and len(csv_data[0]) > 0 and csv_data[0][0] == "symbol":
-        start_idx = 1
-
-    all_data = csv_data[start_idx:]
-
-    if not all_data:
-        await query.edit_message_text(f"📭 {date}.csv ফাইলে কোনো ডাটা নেই।")
-        return
-
-    stats = portfolio_analyzer.analyze_portfolio(all_data)
-
-    if not stats:
-        await query.edit_message_text("❌ অ্যানালাইসিস করতে ব্যর্থ হয়েছে।")
-        return
-
-    # সাব-ওয়েব সহ ডাটা তৈরি করুন
-    if category == "vs":
-        symbols_data = list(zip(stats['very_strong']['symbols'], stats['very_strong']['scores'], stats['very_strong']['subwaves']))
-        title = "🔥 খুব শক্তিশালী সিম্বল (স্কোর 80+)"
-    elif category == "vg":
-        symbols_data = list(zip(stats['good']['symbols'], stats['good']['scores'], stats['good']['subwaves']))
-        title = "✅ ভাল সিম্বল (স্কোর 60-79)"
-    elif category == "vm":
-        symbols_data = list(zip(stats['medium']['symbols'], stats['medium']['scores'], stats['medium']['subwaves']))
-        title = "⚠️ মধ্যম সিম্বল (স্কোর 40-59)"
-    elif category == "vw":
-        symbols_data = list(zip(stats['weak']['symbols'], stats['weak']['scores'], stats['weak']['subwaves']))
-        title = "❌ দুর্বল সিম্বল (স্কোর <40)"
-    elif category == "iw":
-        symbols_data = list(zip(stats['impulse']['symbols'], ["-"] * len(stats['impulse']['symbols']), stats['impulse']['subwaves']))
-        title = "📈 ইম্পালস ওয়েভ সিম্বল"
-    elif category == "cw":
-        symbols_data = list(zip(stats['corrective']['symbols'], ["-"] * len(stats['corrective']['symbols']), stats['corrective']['subwaves']))
-        title = "🔄 করেকটিভ ওয়েভ সিম্বল"
-    else:
-        await query.edit_message_text("❌ ভুল ক্যাটাগরি।")
-        return
-
-    total_pages = (len(symbols_data) + 9) // 10
-    if page > total_pages and total_pages > 0:
-        page = total_pages
-
-    result, reply_markup = portfolio_analyzer.format_symbols_with_buttons(
-        symbols_data, title, date, category, page, total_pages
-    )
-
-    await query.edit_message_text(result, parse_mode='Markdown', reply_markup=reply_markup)
-
-async def symbol_detail_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """সিম্বল ডিটেইল বাটনের কলব্যাক হ্যান্ডলার"""
-    query = update.callback_query
-    await query.answer()
-
-    data = query.data
-    parts = data.split('_')
-
-    if parts[0] == "sym":
-        date = parts[1]
-        symbol = parts[2]
-
-        csv_data = hf_manager.read_csv_file(date)
-
-        if csv_data is None:
-            await query.edit_message_text(f"❌ {date}.csv ফাইল পাওয়া যায়নি।")
-            return
-
-        start_idx = 0
-        if csv_data and csv_data[0] and len(csv_data[0]) > 0 and csv_data[0][0] == "symbol":
-            start_idx = 1
-
-        all_data = csv_data[start_idx:]
-
-        symbol_detail = portfolio_analyzer.get_symbol_detail(date, symbol, all_data)
-
-        if symbol_detail:
-            result, reply_markup = portfolio_analyzer.format_symbol_detail_with_buttons(symbol_detail, date)
-            await query.edit_message_text(result, parse_mode='Markdown', reply_markup=reply_markup)
-        else:
-            await query.edit_message_text(f"❌ {symbol} সিম্বলের ডাটা পাওয়া যায়নি।")
-
-async def report_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """রিপোর্ট ব্যাক বাটনের কলব্যাক হ্যান্ডলার"""
-    query = update.callback_query
-    await query.answer()
-
-    data = query.data
-    parts = data.split('_')
-
-    if parts[0] == "report":
-        date = parts[1]
-
-        csv_data = hf_manager.read_csv_file(date)
-
-        if csv_data is None:
-            await query.edit_message_text(f"❌ {date}.csv ফাইল পাওয়া যায়নি।")
-            return
-
-        start_idx = 0
-        if csv_data and csv_data[0] and len(csv_data[0]) > 0 and csv_data[0][0] == "symbol":
-            start_idx = 1
-
-        all_data = csv_data[start_idx:]
-
-        stats = portfolio_analyzer.analyze_portfolio(all_data)
-
-        if stats:
-            report, reply_markup = portfolio_analyzer.format_portfolio_report_with_buttons(stats, date)
-            await query.edit_message_text(report, parse_mode='Markdown', reply_markup=reply_markup)
-
-async def back_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ব্যাক বাটনের কলব্যাক হ্যান্ডলার"""
-    query = update.callback_query
-    await query.answer()
-
-    data = query.data
-    parts = data.split('_')
-
-    if parts[0] == "back":
-        date = parts[1]
-
-        last_data = context.user_data.get('last_view', {})
-        category = last_data.get('category', 'vs')
-        page = last_data.get('page', 1)
-
-        csv_data = hf_manager.read_csv_file(date)
-
-        if csv_data:
-            start_idx = 0
-            if csv_data and csv_data[0] and len(csv_data[0]) > 0 and csv_data[0][0] == "symbol":
-                start_idx = 1
-
-            all_data = csv_data[start_idx:]
-            stats = portfolio_analyzer.analyze_portfolio(all_data)
-
-            if stats:
-                if category == "vs":
-                    symbols_data = list(zip(stats['very_strong']['symbols'], stats['very_strong']['scores'], stats['very_strong']['subwaves']))
-                    title = "🔥 খুব শক্তিশালী সিম্বল (স্কোর 80+)"
-                elif category == "vg":
-                    symbols_data = list(zip(stats['good']['symbols'], stats['good']['scores'], stats['good']['subwaves']))
-                    title = "✅ ভাল সিম্বল (স্কোর 60-79)"
-                elif category == "vm":
-                    symbols_data = list(zip(stats['medium']['symbols'], stats['medium']['scores'], stats['medium']['subwaves']))
-                    title = "⚠️ মধ্যম সিম্বল (স্কোর 40-59)"
-                elif category == "vw":
-                    symbols_data = list(zip(stats['weak']['symbols'], stats['weak']['scores'], stats['weak']['subwaves']))
-                    title = "❌ দুর্বল সিম্বল (স্কোর <40)"
-                elif category == "iw":
-                    symbols_data = list(zip(stats['impulse']['symbols'], ["-"] * len(stats['impulse']['symbols']), stats['impulse']['subwaves']))
-                    title = "📈 ইম্পালস ওয়েভ সিম্বল"
-                elif category == "cw":
-                    symbols_data = list(zip(stats['corrective']['symbols'], ["-"] * len(stats['corrective']['symbols']), stats['corrective']['subwaves']))
-                    title = "🔄 করেকটিভ ওয়েভ সিম্বল"
-                else:
-                    symbols_data = list(zip(stats['very_strong']['symbols'], stats['very_strong']['scores'], stats['very_strong']['subwaves']))
-                    title = "🔥 খুব শক্তিশালী সিম্বল (স্কোর 80+)"
-
-                total_pages = (len(symbols_data) + 9) // 10
-                if page > total_pages:
-                    page = total_pages
-
-                result, reply_markup = portfolio_analyzer.format_symbols_with_buttons(
-                    symbols_data, title, date, category, page, total_pages
-                )
-                await query.edit_message_text(result, parse_mode='Markdown', reply_markup=reply_markup)
-            else:
-                await query.edit_message_text("❌ ডাটা লোড করতে ব্যর্থ হয়েছে।")
-        else:
-            await query.edit_message_text(f"❌ {date}.csv ফাইল পাওয়া যায়নি।")
-
-async def special_command_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """বিশেষ কমান্ডের কলব্যাক হ্যান্ডলার (brrr, hscore, trec, avoid)"""
-    query = update.callback_query
-    await query.answer()
-
-    data = query.data
-    parts = data.split('_')
-    command_type = parts[0]
-    date = parts[1] if len(parts) > 1 else None
-
-    if not date:
-        await query.edit_message_text("❌ তারিখ পাওয়া যায়নি।")
-        return
-
-    csv_data = hf_manager.read_csv_file(date)
-
-    if csv_data is None:
-        await query.edit_message_text(f"❌ {date}.csv ফাইল পাওয়া যায়নি।")
-        return
-
-    start_idx = 0
-    if csv_data and csv_data[0] and len(csv_data[0]) > 0 and csv_data[0][0] == "symbol":
-        start_idx = 1
-
-    all_data = csv_data[start_idx:]
-    stats = portfolio_analyzer.analyze_portfolio(all_data)
-
-    if command_type == "brrr":
-        best_rrr = {'value': 0, 'symbol': '', 'rrr': '', 'score': ''}
-        for row in all_data:
-            if len(row) > 8:
-                symbol = row[0]
-                rrr_str = row[8]
-                score = row[9] if len(row) > 9 else "-"
-                rrr_value = portfolio_analyzer.parse_rrr(rrr_str)
-                if rrr_value > best_rrr['value']:
-                    best_rrr['value'] = rrr_value
-                    best_rrr['symbol'] = symbol
-                    best_rrr['rrr'] = rrr_str
-                    best_rrr['score'] = score
-
-        if best_rrr['value'] > 0:
-            emoji = get_score_emoji(best_rrr['score'])
-            result = f"🏆 **সেরা RRR - {date}**\n\n"
-            result += f"```\n"
-            result += f"সিম্বল      : {best_rrr['symbol']}\n"
-            result += f"RRR         : {best_rrr['rrr']}\n"
-            result += f"স্কোর       : {best_rrr['score']}/100 {emoji}\n"
-            result += f"```"
-            keyboard = [[InlineKeyboardButton("🔙 পোর্টফোলিওতে ফিরুন", callback_data=f"report_{date}")]]
-            await query.edit_message_text(result, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
-        else:
-            await query.edit_message_text("❌ কোনো RRR ডাটা পাওয়া যায়নি।")
-
-    elif command_type == "hscore":
-        highest = {'value': 0, 'symbol': '', 'score': ''}
-        for row in all_data:
-            if len(row) > 9:
-                symbol = row[0]
-                score_str = row[9]
-                try:
-                    score_val = int(str(score_str).replace('%', ''))
-                    if score_val > highest['value']:
-                        highest['value'] = score_val
-                        highest['symbol'] = symbol
-                        highest['score'] = score_str
-                except:
-                    continue
-
-        if highest['value'] > 0:
-            emoji = get_score_emoji(highest['score'])
-            result = f"💎 **সর্বোচ্চ স্কোর - {date}**\n\n"
-            result += f"```\n"
-            result += f"সিম্বল      : {highest['symbol']}\n"
-            result += f"স্কোর       : {highest['score']}/100 {emoji}\n"
-            result += f"```"
-            keyboard = [[InlineKeyboardButton("🔙 পোর্টফোলিওতে ফিরুন", callback_data=f"report_{date}")]]
-            await query.edit_message_text(result, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
-        else:
-            await query.edit_message_text("❌ কোনো স্কোর ডাটা পাওয়া যায়নি।")
-
-    elif command_type == "trec":
-        if stats and stats['top_recommendations']:
-            result = f"💡 **টপ রিকমেন্ডেশন - {date}**\n\n"
-            result += "```\n"
-            result += f"{'ক্রম':<6} {'সিম্বল':<15} {'স্কোর':<10} {'RRR'}\n"
-            result += "-" * 45 + "\n"
-            for i, sym in enumerate(stats['top_recommendations'][:10]):
-                score = "-"
-                rrr = "-"
-                for row in all_data:
-                    if row[0] == sym:
-                        if len(row) > 9:
-                            score = row[9]
-                        if len(row) > 8:
-                            rrr = row[8]
-                        break
-                emoji = get_score_emoji(score)
-                result += f"{i+1:<6} {sym:<15} {score}/100 {emoji:<5} {rrr}\n"
-            result += "```"
-            keyboard = [[InlineKeyboardButton("🔙 পোর্টফোলিওতে ফিরুন", callback_data=f"report_{date}")]]
-            await query.edit_message_text(result, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
-        else:
-            await query.edit_message_text(f"📭 {date} তারিখে কোনো টপ রিকমেন্ডেশন নেই।")
-
-    elif command_type == "avoid":
-        if stats and stats['avoid_symbols']:
-            result = f"⚠️ **এড়িয়ে চলুন - {date}**\n\n"
-            result += "```\n"
-            result += f"{'ক্রম':<6} {'সিম্বল':<15} {'স্কোর':<10} {'রেটিং'}\n"
-            result += "-" * 45 + "\n"
-            for i, sym in enumerate(stats['avoid_symbols'][:10]):
-                score = "-"
-                for row in all_data:
-                    if row[0] == sym and len(row) > 9:
-                        score = row[9]
-                        break
-                emoji = get_score_emoji(score)
-                result += f"{i+1:<6} {sym:<15} {score}/100 {emoji:<5} খুব দুর্বল\n"
-            result += "```"
-            keyboard = [[InlineKeyboardButton("🔙 পোর্টফোলিওতে ফিরুন", callback_data=f"report_{date}")]]
-            await query.edit_message_text(result, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
-        else:
-            await query.edit_message_text(f"📭 {date} তারিখে কোনো দুর্বল সিম্বল নেই।")
-
 # ==================== TELEGRAM HANDLERS ====================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1006,10 +648,8 @@ def format_as_table(data, title, offset=0, total_records=0, current_page=1, tota
         result += f"║ #{serial} {row[0]} {symbol_emoji}\n"
         result += f"╠══════════════════════════════════════════════════════════════════════════════╣\n"
         result += f"║ 🌊 এলিয়ট ওয়েব : {main_wave}\n"
-
         if sub_wave != "-":
             result += f"║ 📍 সাব-ওয়েব    : {sub_wave}\n"
-
         result += f"║ 📈 এন্ট্রি  : {entry}  |  🛑 স্টপ: {stop}\n"
         result += f"║ 🎯 টার্গেট  : {tp1} → {tp2} → {tp3}  |  📊 RRR: {rrr}\n"
         result += f"║ 🏆 স্কোর    : {score}/100 {score_emoji}  |  {get_score_text(score)}\n"
@@ -1418,30 +1058,67 @@ async def reload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("✅ আজকের ডাটা খালি করা হয়েছে।")
 
-# ==================== FLASK ROUTES ====================
+# ==================== FASTAPI ROUTES ====================
 
-@app.route('/')
-def home():
-    return jsonify({
+# Create FastAPI app
+app_fastapi = FastAPI(title="Stock Data Bot API", version="1.0.0")
+
+@app_fastapi.get("/")
+async def home():
+    return {
         "status": "active",
-        "bot": "Stock Data Bot with Portfolio Analytics, Trade Analytics & Advanced Features",
+        "bot": "Stock Data Bot with Portfolio Analytics",
         "hf_repo": HF_REPO,
         "today_records": len(bot.current_data),
         "columns": len(COLUMNS),
         "columns_list": COLUMNS,
         "features": ["Chart", "Compare", "Backtest", "Export", "Alert"],
         "time": datetime.now().isoformat()
-    })
+    }
 
-@app.route('/health')
-def health():
-    return jsonify({"status": "healthy"})
+@app_fastapi.get("/health")
+async def health():
+    return {"status": "healthy"}
 
-@app.route('/files')
-def get_files():
-    return jsonify({"files": hf_manager.get_all_csv_files()})
+@app_fastapi.get("/files")
+async def get_files():
+    return {"files": hf_manager.get_all_csv_files()}
 
-# ==================== MAIN ====================
+@app_fastapi.get("/stats/{date}")
+async def get_stats(date: str):
+    """নির্দিষ্ট তারিখের পোর্টফোলিও স্ট্যাটাস"""
+    date = fix_date_format(date)
+    data = hf_manager.read_csv_file(date)
+    if data is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    start_idx = 0
+    if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
+        start_idx = 1
+    
+    all_data = data[start_idx:]
+    stats = portfolio_analyzer.analyze_portfolio(all_data)
+    
+    return stats
+
+@app_fastapi.get("/symbols/{date}")
+async def get_symbols(date: str):
+    """নির্দিষ্ট তারিখের সিম্বল লিস্ট"""
+    date = fix_date_format(date)
+    data = hf_manager.read_csv_file(date)
+    if data is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    start_idx = 0
+    if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
+        start_idx = 1
+    
+    all_data = data[start_idx:]
+    symbols = [row[0] for row in all_data if row and len(row) > 0]
+    
+    return {"date": date, "total": len(symbols), "symbols": symbols}
+
+# ==================== TELEGRAM BOT SETUP ====================
 
 async def run_bot():
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -1503,6 +1180,394 @@ async def run_bot():
     except Exception as e:
         print(f"❌ Error: {e}")
 
+# ==================== PORTFOLIO HANDLERS (keep existing ones) ====================
+
+async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """পোর্টফোলিও রিপোর্ট ইনলাইন বাটন সহ দেখান"""
+    args = context.args
+
+    if args:
+        date_input = args[0]
+        date = fix_date_format(date_input)
+    else:
+        files = hf_manager.get_all_csv_files()
+        if files:
+            date = files[0]
+        else:
+            await update.message.reply_text("❌ কোনো CSV ফাইল নেই।")
+            return
+
+    status_msg = await update.message.reply_text(f"⏳ পোর্টফোলিও অ্যানালাইসিস করা হচ্ছে ({date})...")
+
+    data = hf_manager.read_csv_file(date)
+
+    if data is None:
+        await status_msg.edit_text(f"❌ {date}.csv ফাইল পাওয়া যায়নি।")
+        return
+
+    start_idx = 0
+    if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
+        start_idx = 1
+
+    all_data = data[start_idx:]
+
+    if not all_data:
+        await status_msg.edit_text(f"📭 {date}.csv ফাইলে কোনো ডাটা নেই।")
+        return
+
+    stats = portfolio_analyzer.analyze_portfolio(all_data)
+
+    if not stats:
+        await status_msg.edit_text("❌ অ্যানালাইসিস করতে ব্যর্থ হয়েছে।")
+        return
+
+    report, reply_markup = portfolio_analyzer.format_portfolio_report_with_buttons(stats, date)
+
+    await status_msg.edit_text(report, parse_mode='Markdown', reply_markup=reply_markup)
+
+async def category_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ক্যাটাগরি বাটনের কলব্যাক হ্যান্ডলার - সাব-ওয়েব সহ"""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    parts = data.split('_')
+
+    category = parts[0]
+    date = parts[1]
+    page = int(parts[2]) if len(parts) > 2 else 1
+
+    context.user_data['last_view'] = {'category': category, 'date': date, 'page': page}
+
+    csv_data = hf_manager.read_csv_file(date)
+
+    if csv_data is None:
+        await query.edit_message_text(f"❌ {date}.csv ফাইল পাওয়া যায়নি।")
+        return
+
+    start_idx = 0
+    if csv_data and csv_data[0] and len(csv_data[0]) > 0 and csv_data[0][0] == "symbol":
+        start_idx = 1
+
+    all_data = csv_data[start_idx:]
+
+    if not all_data:
+        await query.edit_message_text(f"📭 {date}.csv ফাইলে কোনো ডাটা নেই।")
+        return
+
+    stats = portfolio_analyzer.analyze_portfolio(all_data)
+
+    if not stats:
+        await query.edit_message_text("❌ অ্যানালাইসিস করতে ব্যর্থ হয়েছে।")
+        return
+
+    # সাব-ওয়েব সহ ডাটা তৈরি করুন
+    if category == "vs":
+        symbols_data = list(zip(stats['very_strong']['symbols'], stats['very_strong']['scores'], stats['very_strong']['subwaves']))
+        title = "🔥 খুব শক্তিশালী সিম্বল (স্কোর 80+)"
+    elif category == "vg":
+        symbols_data = list(zip(stats['good']['symbols'], stats['good']['scores'], stats['good']['subwaves']))
+        title = "✅ ভাল সিম্বল (স্কোর 60-79)"
+    elif category == "vm":
+        symbols_data = list(zip(stats['medium']['symbols'], stats['medium']['scores'], stats['medium']['subwaves']))
+        title = "⚠️ মধ্যম সিম্বল (স্কোর 40-59)"
+    elif category == "vw":
+        symbols_data = list(zip(stats['weak']['symbols'], stats['weak']['scores'], stats['weak']['subwaves']))
+        title = "❌ দুর্বল সিম্বল (স্কোর <40)"
+    elif category == "iw":
+        symbols_data = list(zip(stats['impulse']['symbols'], ["-"] * len(stats['impulse']['symbols']), stats['impulse']['subwaves']))
+        title = "📈 ইম্পালস ওয়েভ সিম্বল"
+    elif category == "cw":
+        symbols_data = list(zip(stats['corrective']['symbols'], ["-"] * len(stats['corrective']['symbols']), stats['corrective']['subwaves']))
+        title = "🔄 করেকটিভ ওয়েভ সিম্বল"
+    else:
+        await query.edit_message_text("❌ ভুল ক্যাটাগরি।")
+        return
+
+    total_pages = (len(symbols_data) + 9) // 10
+    if page > total_pages and total_pages > 0:
+        page = total_pages
+
+    result, reply_markup = portfolio_analyzer.format_symbols_with_buttons(
+        symbols_data, title, date, category, page, total_pages
+    )
+
+    await query.edit_message_text(result, parse_mode='Markdown', reply_markup=reply_markup)
+
+async def symbol_detail_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """সিম্বল ডিটেইল বাটনের কলব্যাক হ্যান্ডলার"""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    parts = data.split('_')
+
+    if parts[0] == "sym":
+        date = parts[1]
+        symbol = parts[2]
+
+        csv_data = hf_manager.read_csv_file(date)
+
+        if csv_data is None:
+            await query.edit_message_text(f"❌ {date}.csv ফাইল পাওয়া যায়নি।")
+            return
+
+        start_idx = 0
+        if csv_data and csv_data[0] and len(csv_data[0]) > 0 and csv_data[0][0] == "symbol":
+            start_idx = 1
+
+        all_data = csv_data[start_idx:]
+
+        symbol_detail = portfolio_analyzer.get_symbol_detail(date, symbol, all_data)
+
+        if symbol_detail:
+            result, reply_markup = portfolio_analyzer.format_symbol_detail_with_buttons(symbol_detail, date)
+            await query.edit_message_text(result, parse_mode='Markdown', reply_markup=reply_markup)
+        else:
+            await query.edit_message_text(f"❌ {symbol} সিম্বলের ডাটা পাওয়া যায়নি।")
+
+async def report_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """রিপোর্ট ব্যাক বাটনের কলব্যাক হ্যান্ডলার"""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    parts = data.split('_')
+
+    if parts[0] == "report":
+        date = parts[1]
+
+        csv_data = hf_manager.read_csv_file(date)
+
+        if csv_data is None:
+            await query.edit_message_text(f"❌ {date}.csv ফাইল পাওয়া যায়নি।")
+            return
+
+        start_idx = 0
+        if csv_data and csv_data[0] and len(csv_data[0]) > 0 and csv_data[0][0] == "symbol":
+            start_idx = 1
+
+        all_data = csv_data[start_idx:]
+
+        stats = portfolio_analyzer.analyze_portfolio(all_data)
+
+        if stats:
+            report, reply_markup = portfolio_analyzer.format_portfolio_report_with_buttons(stats, date)
+            await query.edit_message_text(report, parse_mode='Markdown', reply_markup=reply_markup)
+
+async def back_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ব্যাক বাটনের কলব্যাক হ্যান্ডলার"""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    parts = data.split('_')
+
+    if parts[0] == "back":
+        date = parts[1]
+
+        last_data = context.user_data.get('last_view', {})
+        category = last_data.get('category', 'vs')
+        page = last_data.get('page', 1)
+
+        csv_data = hf_manager.read_csv_file(date)
+
+        if csv_data:
+            start_idx = 0
+            if csv_data and csv_data[0] and len(csv_data[0]) > 0 and csv_data[0][0] == "symbol":
+                start_idx = 1
+
+            all_data = csv_data[start_idx:]
+            stats = portfolio_analyzer.analyze_portfolio(all_data)
+
+            if stats:
+                if category == "vs":
+                    symbols_data = list(zip(stats['very_strong']['symbols'], stats['very_strong']['scores'], stats['very_strong']['subwaves']))
+                    title = "🔥 খুব শক্তিশালী সিম্বল (স্কোর 80+)"
+                elif category == "vg":
+                    symbols_data = list(zip(stats['good']['symbols'], stats['good']['scores'], stats['good']['subwaves']))
+                    title = "✅ ভাল সিম্বল (স্কোর 60-79)"
+                elif category == "vm":
+                    symbols_data = list(zip(stats['medium']['symbols'], stats['medium']['scores'], stats['medium']['subwaves']))
+                    title = "⚠️ মধ্যম সিম্বল (স্কোর 40-59)"
+                elif category == "vw":
+                    symbols_data = list(zip(stats['weak']['symbols'], stats['weak']['scores'], stats['weak']['subwaves']))
+                    title = "❌ দুর্বল সিম্বল (স্কোর <40)"
+                elif category == "iw":
+                    symbols_data = list(zip(stats['impulse']['symbols'], ["-"] * len(stats['impulse']['symbols']), stats['impulse']['subwaves']))
+                    title = "📈 ইম্পালস ওয়েভ সিম্বল"
+                elif category == "cw":
+                    symbols_data = list(zip(stats['corrective']['symbols'], ["-"] * len(stats['corrective']['symbols']), stats['corrective']['subwaves']))
+                    title = "🔄 করেকটিভ ওয়েভ সিম্বল"
+                else:
+                    symbols_data = list(zip(stats['very_strong']['symbols'], stats['very_strong']['scores'], stats['very_strong']['subwaves']))
+                    title = "🔥 খুব শক্তিশালী সিম্বল (স্কোর 80+)"
+
+                total_pages = (len(symbols_data) + 9) // 10
+                if page > total_pages:
+                    page = total_pages
+
+                result, reply_markup = portfolio_analyzer.format_symbols_with_buttons(
+                    symbols_data, title, date, category, page, total_pages
+                )
+                await query.edit_message_text(result, parse_mode='Markdown', reply_markup=reply_markup)
+            else:
+                await query.edit_message_text("❌ ডাটা লোড করতে ব্যর্থ হয়েছে।")
+        else:
+            await query.edit_message_text(f"❌ {date}.csv ফাইল পাওয়া যায়নি।")
+
+async def special_command_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """বিশেষ কমান্ডের কলব্যাক হ্যান্ডলার (brrr, hscore, trec, avoid) - কার্ড ফরম্যাটে"""
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    parts = data.split('_')
+    command_type = parts[0]
+    date = parts[1] if len(parts) > 1 else None
+
+    if not date:
+        await query.edit_message_text("❌ তারিখ পাওয়া যায়নি।")
+        return
+
+    csv_data = hf_manager.read_csv_file(date)
+
+    if csv_data is None:
+        await query.edit_message_text(f"❌ {date}.csv ফাইল পাওয়া যায়নি।")
+        return
+
+    start_idx = 0
+    if csv_data and csv_data[0] and len(csv_data[0]) > 0 and csv_data[0][0] == "symbol":
+        start_idx = 1
+
+    all_data = csv_data[start_idx:]
+
+    def format_card(row, rank):
+        """একটি কার্ড ফরম্যাট তৈরি করুন"""
+        score = row[9] if len(row) > 9 else "-"
+        score_emoji = get_score_emoji(score)
+        score_text = get_score_text(score)
+        
+        main_wave = row[1] if len(row) > 1 else "-"
+        sub_wave = row[2] if len(row) > 2 and row[2].strip() else "-"
+        entry = row[3] if len(row) > 3 else "-"
+        stop = row[4] if len(row) > 4 else "-"
+        tp1 = row[5] if len(row) > 5 else "-"
+        tp2 = row[6] if len(row) > 6 else "-"
+        tp3 = row[7] if len(row) > 7 else "-"
+        rrr = row[8] if len(row) > 8 else "-"
+        insight = row[10] if len(row) > 10 else "কোনো ইনসাইট নেই"
+        
+        card = f"╔══════════════════════════════════════════════════════════════════════════════╗\n"
+        card += f"║ #{rank} {row[0]} {score_emoji}\n"
+        card += f"╠══════════════════════════════════════════════════════════════════════════════╣\n"
+        card += f"║ 🌊 এলিয়ট ওয়েব : {main_wave}\n"
+        if sub_wave != "-":
+            card += f"║ 📍 সাব-ওয়েব    : {sub_wave}\n"
+        card += f"║ 📈 এন্ট্রি  : {entry}  |  🛑 স্টপ: {stop}\n"
+        card += f"║ 🎯 টার্গেট  : {tp1} → {tp2} → {tp3}  |  📊 RRR: {rrr}\n"
+        card += f"║ 🏆 স্কোর    : {score}/100 {score_emoji}  |  {score_text}\n"
+        
+        insight_lines = []
+        for j in range(0, len(insight), 70):
+            insight_lines.append(insight[j:j+70])
+        for idx, line in enumerate(insight_lines):
+            if idx == 0:
+                card += f"║ 💡 ইনসাইট  : {line}\n"
+            else:
+                card += f"║              {line}\n"
+        card += f"╚══════════════════════════════════════════════════════════════════════════════╝\n"
+        return card
+
+    if command_type == "brrr":
+        # সেরা RRR খুঁজুন
+        best_rrr = {'value': 0, 'symbol': '', 'rrr': '', 'score': '', 'row': None}
+        for row in all_data:
+            if len(row) > 8:
+                symbol = row[0]
+                rrr_str = row[8]
+                score = row[9] if len(row) > 9 else "-"
+                rrr_value = portfolio_analyzer.parse_rrr(rrr_str)
+                if rrr_value > best_rrr['value']:
+                    best_rrr['value'] = rrr_value
+                    best_rrr['symbol'] = symbol
+                    best_rrr['rrr'] = rrr_str
+                    best_rrr['score'] = score
+                    best_rrr['row'] = row
+
+        if best_rrr['value'] > 0 and best_rrr['row']:
+            result = f"🏆 **সেরা RRR - {date}**\n\n```\n"
+            result += format_card(best_rrr['row'], 1)
+            result += "```"
+            keyboard = [[InlineKeyboardButton("🔙 পোর্টফোলিওতে ফিরুন", callback_data=f"report_{date}")]]
+            await query.edit_message_text(result, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await query.edit_message_text("❌ কোনো RRR ডাটা পাওয়া যায়নি।")
+
+    elif command_type == "hscore":
+        # সর্বোচ্চ স্কোর খুঁজুন
+        highest = {'value': 0, 'symbol': '', 'score': '', 'row': None}
+        for row in all_data:
+            if len(row) > 9:
+                symbol = row[0]
+                score_str = row[9]
+                try:
+                    score_val = int(str(score_str).replace('%', ''))
+                    if score_val > highest['value']:
+                        highest['value'] = score_val
+                        highest['symbol'] = symbol
+                        highest['score'] = score_str
+                        highest['row'] = row
+                except:
+                    continue
+
+        if highest['value'] > 0 and highest['row']:
+            result = f"💎 **সর্বোচ্চ স্কোর - {date}**\n\n```\n"
+            result += format_card(highest['row'], 1)
+            result += "```"
+            keyboard = [[InlineKeyboardButton("🔙 পোর্টফোলিওতে ফিরুন", callback_data=f"report_{date}")]]
+            await query.edit_message_text(result, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await query.edit_message_text("❌ কোনো স্কোর ডাটা পাওয়া যায়নি।")
+
+    elif command_type == "trec":
+        # টপ রিকমেন্ডেশন (স্কোর 80+)
+        stats = portfolio_analyzer.analyze_portfolio(all_data)
+        if stats and stats['very_strong']['symbols']:
+            result = f"💡 **টপ রিকমেন্ডেশন - {date}**\n\n```\n"
+            rank = 1
+            for sym in stats['very_strong']['symbols'][:10]:
+                for row in all_data:
+                    if row[0] == sym:
+                        result += format_card(row, rank)
+                        rank += 1
+                        break
+            result += "```"
+            keyboard = [[InlineKeyboardButton("🔙 পোর্টফোলিওতে ফিরুন", callback_data=f"report_{date}")]]
+            await query.edit_message_text(result, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await query.edit_message_text(f"📭 {date} তারিখে কোনো টপ রিকমেন্ডেশন নেই।")
+
+    elif command_type == "avoid":
+        # এড়িয়ে চলুন (স্কোর 50 এর নিচে)
+        stats = portfolio_analyzer.analyze_portfolio(all_data)
+        if stats and stats['avoid_symbols']:
+            result = f"⚠️ **এড়িয়ে চলুন - {date}**\n\n```\n"
+            rank = 1
+            for sym in stats['avoid_symbols'][:10]:
+                for row in all_data:
+                    if row[0] == sym:
+                        result += format_card(row, rank)
+                        rank += 1
+                        break
+            result += "```"
+            keyboard = [[InlineKeyboardButton("🔙 পোর্টফোলিওতে ফিরুন", callback_data=f"report_{date}")]]
+            await query.edit_message_text(result, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await query.edit_message_text(f"📭 {date} তারিখে কোনো দুর্বল সিম্বল নেই।")
+
+# ==================== MAIN ====================
+
 def main():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -1514,8 +1579,8 @@ def main():
     thread.start()
 
     port = int(os.environ.get("PORT", 10000))
-    print(f"🌐 Flask on port {port}")
-    app.run(host='0.0.0.0', port=port)
+    print(f"🌐 FastAPI starting on port {port}")
+    uvicorn.run(app_fastapi, host='0.0.0.0', port=port)
 
 if __name__ == "__main__":
     main()
