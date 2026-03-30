@@ -1,4 +1,4 @@
-# portfolio.py - পোর্টফোলিও অ্যানালাইটিক্স মডিউল (সাব-ওয়েব সহ)
+# portfolio.py - পোর্টফোলিও অ্যানালাইটিক্স মডিউল (সাব-ওয়েব সহ) - সম্পূর্ণ আপডেট
 
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -109,14 +109,9 @@ class PortfolioAnalyzer:
             sub_wave = "-"
             if len(row) > 2:
                 raw_subwave = row[2]
-                if raw_subwave and raw_subwave.strip():
-                    # Remove any emoji or special characters
-                    clean_subwave = raw_subwave.strip()
-                    # Keep meaningful subwave like "Wave 3", "Wave 5 of 3", etc.
-                    if clean_subwave not in ["✅", "❌", "⚠️", "⭐", "🔥", "💎", "📈", "-"]:
-                        sub_wave = clean_subwave
-                    else:
-                        sub_wave = "-"
+                if raw_subwave and raw_subwave.strip() and raw_subwave.strip() != "":
+                    # Keep the original subwave text
+                    sub_wave = raw_subwave.strip()
                 else:
                     sub_wave = "-"
             else:
@@ -184,7 +179,12 @@ class PortfolioAnalyzer:
         for sym in stats['weak']['symbols']:
             stats['avoid_symbols'].append(sym)
             
-        print(f"✅ Analysis complete: Very Strong={stats['very_strong']['count']}, Good={stats['good']['count']}, Medium={stats['medium']['count']}, Weak={stats['weak']['count']}")
+        print(f"✅ Analysis complete:")
+        print(f"   Very Strong: {stats['very_strong']['count']} symbols")
+        print(f"   Good: {stats['good']['count']} symbols")
+        print(f"   Medium: {stats['medium']['count']} symbols")
+        print(f"   Weak: {stats['weak']['count']} symbols")
+        print(f"   Sample subwaves: {stats['medium']['subwaves'][:3] if stats['medium']['subwaves'] else []}")
 
         return stats
 
@@ -284,7 +284,10 @@ class PortfolioAnalyzer:
             category_name = title.split("(")[0].strip()
             emoji = "📊"
 
-        result = f"{emoji} **{category_name} সিম্বল ({title.split('(')[-1].replace(')', '')})** | 📋 {total} টি সিম্বল | 📄 পৃষ্ঠা {page}/{total_pages}\n\n"
+        # Get score range from title
+        score_range = title.split('(')[-1].replace(')', '') if '(' in title else ""
+
+        result = f"{emoji} **{category_name} সিম্বল ({score_range})** | 📋 {total} টি সিম্বল | 📄 পৃষ্ঠা {page}/{total_pages}\n\n"
         result += "```\n"
         result += f"{'ক্রম':<6} {'সিম্বল':<15} {'স্কোর':<10} {'সাব-ওয়েব':<25}\n"
         result += "-" * 56 + "\n"
@@ -300,18 +303,20 @@ class PortfolioAnalyzer:
                 symbol, score = item, "-"
                 subwave = "-"
 
-            # Clean subwave
-            if subwave in ["✅", "❌", "⚠️", "⭐", "🔥", "💎", "📈", "-"]:
-                subwave = "-"
+            # Clean subwave - keep original text
+            if subwave and subwave.strip() and subwave.strip() != "":
+                subwave_display = subwave
+            else:
+                subwave_display = "-"
 
             # Clean score (remove %)
             score_display = str(score).replace('%', '') if score != "-" else "-"
             emoji_score = self.get_score_emoji(score) if score != "-" else "📊"
             
             if score != "-":
-                result += f"{serial:<6} {symbol:<15} {score_display}/100 {emoji_score:<5} {subwave:<25}\n"
+                result += f"{serial:<6} {symbol:<15} {score_display}/100 {emoji_score:<5} {subwave_display:<25}\n"
             else:
-                result += f"{serial:<6} {symbol:<15} {'':<10} {emoji_score:<5} {subwave:<25}\n"
+                result += f"{serial:<6} {symbol:<15} {'':<10} {emoji_score:<5} {subwave_display:<25}\n"
 
         result += "```\n\n"
 
@@ -380,14 +385,10 @@ class PortfolioAnalyzer:
                 except:
                     score_val = 0
                 
-                # সাব-ওয়েব নিন
+                # সাব-ওয়েব নিন - keep original text
                 sub_wave = "-"
-                if len(row) > 2 and row[2] and row[2].strip():
-                    clean_subwave = row[2].strip()
-                    if clean_subwave not in ["✅", "❌", "⚠️", "⭐", "🔥", "💎", "📈", "-"]:
-                        sub_wave = clean_subwave
-                    else:
-                        sub_wave = "-"
+                if len(row) > 2 and row[2] and row[2].strip() and row[2].strip() != "":
+                    sub_wave = row[2].strip()
 
                 return {
                     'rank': idx + 1,
