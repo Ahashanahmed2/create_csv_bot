@@ -1,5 +1,3 @@
-# main.py - FastAPI + Telegram Bot for Render
-
 import os
 import csv
 import json
@@ -11,7 +9,6 @@ import re
 from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
-from contextlib import asynccontextmanager
 import uvicorn
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
@@ -26,6 +23,9 @@ from advanced_features import (
     AdvancedFeatures, chart_command, compare_command, 
     notify_command, setalert_command, backtest_command, export_command
 )
+
+# FastAPI app
+app_fastapi = FastAPI(title="Stock Data Bot API", version="1.0.0")
 
 # Hugging Face configuration
 HF_TOKEN = os.environ.get("HF_TOKEN")
@@ -342,7 +342,9 @@ def fix_date_format(date_str):
 def get_score_emoji(score):
     """স্কোর অনুযায়ী ইমোজি রিটার্ন করুন"""
     try:
-        score_str = str(score).replace('%', '')
+        score_str = str(score).replace('%', '').strip()
+        if not score_str or score_str == '-':
+            return "📊"
         score_num = int(score_str)
         if score_num >= 85:
             return "💎"
@@ -364,7 +366,9 @@ def get_score_emoji(score):
 def get_score_text(score):
     """স্কোর অনুযায়ী টেক্সট রিটার্ন করুন"""
     try:
-        score_str = str(score).replace('%', '')
+        score_str = str(score).replace('%', '').strip()
+        if not score_str or score_str == '-':
+            return "📊 তথ্য নেই"
         score_num = int(score_str)
         if score_num >= 85:
             return "💎 এক্সট্রিম শক্তিশালী"
@@ -1058,129 +1062,7 @@ async def reload_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("✅ আজকের ডাটা খালি করা হয়েছে।")
 
-# ==================== FASTAPI ROUTES ====================
-
-# Create FastAPI app
-app_fastapi = FastAPI(title="Stock Data Bot API", version="1.0.0")
-
-@app_fastapi.get("/")
-async def home():
-    return {
-        "status": "active",
-        "bot": "Stock Data Bot with Portfolio Analytics",
-        "hf_repo": HF_REPO,
-        "today_records": len(bot.current_data),
-        "columns": len(COLUMNS),
-        "columns_list": COLUMNS,
-        "features": ["Chart", "Compare", "Backtest", "Export", "Alert"],
-        "time": datetime.now().isoformat()
-    }
-
-@app_fastapi.get("/health")
-async def health():
-    return {"status": "healthy"}
-
-@app_fastapi.get("/files")
-async def get_files():
-    return {"files": hf_manager.get_all_csv_files()}
-
-@app_fastapi.get("/stats/{date}")
-async def get_stats(date: str):
-    """নির্দিষ্ট তারিখের পোর্টফোলিও স্ট্যাটাস"""
-    date = fix_date_format(date)
-    data = hf_manager.read_csv_file(date)
-    if data is None:
-        raise HTTPException(status_code=404, detail="File not found")
-    
-    start_idx = 0
-    if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
-        start_idx = 1
-    
-    all_data = data[start_idx:]
-    stats = portfolio_analyzer.analyze_portfolio(all_data)
-    
-    return stats
-
-@app_fastapi.get("/symbols/{date}")
-async def get_symbols(date: str):
-    """নির্দিষ্ট তারিখের সিম্বল লিস্ট"""
-    date = fix_date_format(date)
-    data = hf_manager.read_csv_file(date)
-    if data is None:
-        raise HTTPException(status_code=404, detail="File not found")
-    
-    start_idx = 0
-    if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
-        start_idx = 1
-    
-    all_data = data[start_idx:]
-    symbols = [row[0] for row in all_data if row and len(row) > 0]
-    
-    return {"date": date, "total": len(symbols), "symbols": symbols}
-
-# ==================== TELEGRAM BOT SETUP ====================
-
-async def run_bot():
-    token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    if not token:
-        print("❌ TELEGRAM_BOT_TOKEN not set!")
-        return
-
-    try:
-        application = Application.builder().token(token).build()
-
-        # বেসিক কমান্ড
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("help", help_command))
-        application.add_handler(CommandHandler("list", list_command))
-        application.add_handler(CommandHandler("insight", insight_command))
-        application.add_handler(CommandHandler("reload", reload_command))
-        application.add_handler(CommandHandler("clear", clear_command))
-        application.add_handler(CommandHandler("yesclear", yesclear_command))
-        application.add_handler(CommandHandler("files", files_command))
-        application.add_handler(CommandHandler("view", view_command))
-        application.add_handler(CommandHandler("deletefile", deletefile_command))
-        application.add_handler(CommandHandler("confirmdelete", confirmdelete_command))
-        application.add_handler(CommandHandler("symbols", symbols_command))
-        application.add_handler(CommandHandler("deletesymbol", deletesymbol_command))
-        application.add_handler(CommandHandler("search", search_command))
-        application.add_handler(CommandHandler("status", status_command))
-        application.add_handler(CommandHandler("cancel", cancel_command))
-
-        # পোর্টফোলিও কমান্ড (ইনলাইন বাটন সহ)
-        application.add_handler(CommandHandler("portfolio", portfolio_command))
-
-        # অ্যাডভান্সড ফিচার কমান্ড
-        application.add_handler(CommandHandler("chart", chart_command_wrapper))
-        application.add_handler(CommandHandler("compare", compare_command_wrapper))
-        application.add_handler(CommandHandler("notify", notify_command_wrapper))
-        application.add_handler(CommandHandler("setalert", setalert_command_wrapper))
-        application.add_handler(CommandHandler("backtest", backtest_command_wrapper))
-        application.add_handler(CommandHandler("export", export_command_wrapper))
-
-        # ইনলাইন বাটন কলব্যাক হ্যান্ডলার
-        application.add_handler(CallbackQueryHandler(category_callback_handler, pattern='^(vs|vg|vm|vw|iw|cw)_'))
-        application.add_handler(CallbackQueryHandler(symbol_detail_callback_handler, pattern='^sym_'))
-        application.add_handler(CallbackQueryHandler(report_callback_handler, pattern='^report_'))
-        application.add_handler(CallbackQueryHandler(back_callback_handler, pattern='^back_'))
-        application.add_handler(CallbackQueryHandler(special_command_callback_handler, pattern='^(brrr|hscore|trec|avoid)_'))
-
-        # ট্রেড অ্যানালাইটিক্স হ্যান্ডলার যোগ করুন
-        add_trade_analytics_handlers(application)
-
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-        print("🤖 Telegram Bot starting with Inline Buttons, Trade Analytics & Advanced Features...")
-        await application.initialize()
-        await application.start()
-        await application.updater.start_polling()
-
-        while True:
-            await asyncio.sleep(1)
-    except Exception as e:
-        print(f"❌ Error: {e}")
-
-# ==================== PORTFOLIO HANDLERS (keep existing ones) ====================
+# ==================== PORTFOLIO HANDLERS ====================
 
 async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """পোর্টফোলিও রিপোর্ট ইনলাইন বাটন সহ দেখান"""
@@ -1226,7 +1108,7 @@ async def portfolio_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await status_msg.edit_text(report, parse_mode='Markdown', reply_markup=reply_markup)
 
 async def category_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ক্যাটাগরি বাটনের কলব্যাক হ্যান্ডলার - সাব-ওয়েব সহ"""
+    """ক্যাটাগরি বাটনের কলব্যাক হ্যান্ডলার - স্কোর এবং সাব-ওয়েব সহ"""
     query = update.callback_query
     await query.answer()
 
@@ -1261,24 +1143,48 @@ async def category_callback_handler(update: Update, context: ContextTypes.DEFAUL
         await query.edit_message_text("❌ অ্যানালাইসিস করতে ব্যর্থ হয়েছে।")
         return
 
-    # সাব-ওয়েব সহ ডাটা তৈরি করুন
+    # সঠিকভাবে ডাটা তৈরি করুন (symbol, score, subwave)
     if category == "vs":
-        symbols_data = list(zip(stats['very_strong']['symbols'], stats['very_strong']['scores'], stats['very_strong']['subwaves']))
+        symbols_data = list(zip(
+            stats['very_strong']['symbols'], 
+            stats['very_strong']['scores'], 
+            stats['very_strong']['subwaves']
+        ))
         title = "🔥 খুব শক্তিশালী সিম্বল (স্কোর 80+)"
     elif category == "vg":
-        symbols_data = list(zip(stats['good']['symbols'], stats['good']['scores'], stats['good']['subwaves']))
+        symbols_data = list(zip(
+            stats['good']['symbols'], 
+            stats['good']['scores'], 
+            stats['good']['subwaves']
+        ))
         title = "✅ ভাল সিম্বল (স্কোর 60-79)"
     elif category == "vm":
-        symbols_data = list(zip(stats['medium']['symbols'], stats['medium']['scores'], stats['medium']['subwaves']))
+        symbols_data = list(zip(
+            stats['medium']['symbols'], 
+            stats['medium']['scores'], 
+            stats['medium']['subwaves']
+        ))
         title = "⚠️ মধ্যম সিম্বল (স্কোর 40-59)"
     elif category == "vw":
-        symbols_data = list(zip(stats['weak']['symbols'], stats['weak']['scores'], stats['weak']['subwaves']))
+        symbols_data = list(zip(
+            stats['weak']['symbols'], 
+            stats['weak']['scores'], 
+            stats['weak']['subwaves']
+        ))
         title = "❌ দুর্বল সিম্বল (স্কোর <40)"
     elif category == "iw":
-        symbols_data = list(zip(stats['impulse']['symbols'], ["-"] * len(stats['impulse']['symbols']), stats['impulse']['subwaves']))
+        symbols_data = list(zip(
+            stats['impulse']['symbols'], 
+            stats['impulse']['scores'], 
+            stats['impulse']['subwaves']
+        ))
         title = "📈 ইম্পালস ওয়েভ সিম্বল"
     elif category == "cw":
-        symbols_data = list(zip(stats['corrective']['symbols'], ["-"] * len(stats['corrective']['symbols']), stats['corrective']['subwaves']))
+        symbols_data = list(zip(
+            stats['corrective']['symbols'], 
+            stats['corrective']['scores'], 
+            stats['corrective']['subwaves']
+        ))
         title = "🔄 করেকটিভ ওয়েভ সিম্বল"
     else:
         await query.edit_message_text("❌ ভুল ক্যাটাগরি।")
@@ -1394,10 +1300,10 @@ async def back_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
                     symbols_data = list(zip(stats['weak']['symbols'], stats['weak']['scores'], stats['weak']['subwaves']))
                     title = "❌ দুর্বল সিম্বল (স্কোর <40)"
                 elif category == "iw":
-                    symbols_data = list(zip(stats['impulse']['symbols'], ["-"] * len(stats['impulse']['symbols']), stats['impulse']['subwaves']))
+                    symbols_data = list(zip(stats['impulse']['symbols'], stats['impulse']['scores'], stats['impulse']['subwaves']))
                     title = "📈 ইম্পালস ওয়েভ সিম্বল"
                 elif category == "cw":
-                    symbols_data = list(zip(stats['corrective']['symbols'], ["-"] * len(stats['corrective']['symbols']), stats['corrective']['subwaves']))
+                    symbols_data = list(zip(stats['corrective']['symbols'], stats['corrective']['scores'], stats['corrective']['subwaves']))
                     title = "🔄 করেকটিভ ওয়েভ সিম্বল"
                 else:
                     symbols_data = list(zip(stats['very_strong']['symbols'], stats['very_strong']['scores'], stats['very_strong']['subwaves']))
@@ -1549,7 +1455,7 @@ async def special_command_callback_handler(update: Update, context: ContextTypes
             await query.edit_message_text(f"📭 {date} তারিখে কোনো টপ রিকমেন্ডেশন নেই।")
 
     elif command_type == "avoid":
-        # এড়িয়ে চলুন (স্কোর 50 এর নিচে)
+        # এড়িয়ে চলুন (স্কোর 40 এর নিচে)
         stats = portfolio_analyzer.analyze_portfolio(all_data)
         if stats and stats['avoid_symbols']:
             result = f"⚠️ **এড়িয়ে চলুন - {date}**\n\n```\n"
@@ -1565,6 +1471,125 @@ async def special_command_callback_handler(update: Update, context: ContextTypes
             await query.edit_message_text(result, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
         else:
             await query.edit_message_text(f"📭 {date} তারিখে কোনো দুর্বল সিম্বল নেই।")
+
+# ==================== FASTAPI ROUTES ====================
+
+@app_fastapi.get("/")
+async def home():
+    return {
+        "status": "active",
+        "bot": "Stock Data Bot with Portfolio Analytics",
+        "hf_repo": HF_REPO,
+        "today_records": len(bot.current_data),
+        "columns": len(COLUMNS),
+        "columns_list": COLUMNS,
+        "features": ["Chart", "Compare", "Backtest", "Export", "Alert"],
+        "time": datetime.now().isoformat()
+    }
+
+@app_fastapi.get("/health")
+async def health():
+    return {"status": "healthy"}
+
+@app_fastapi.get("/files")
+async def get_files():
+    return {"files": hf_manager.get_all_csv_files()}
+
+@app_fastapi.get("/stats/{date}")
+async def get_stats(date: str):
+    """নির্দিষ্ট তারিখের পোর্টফোলিও স্ট্যাটাস"""
+    date = fix_date_format(date)
+    data = hf_manager.read_csv_file(date)
+    if data is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    start_idx = 0
+    if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
+        start_idx = 1
+    
+    all_data = data[start_idx:]
+    stats = portfolio_analyzer.analyze_portfolio(all_data)
+    
+    return stats
+
+@app_fastapi.get("/symbols/{date}")
+async def get_symbols(date: str):
+    """নির্দিষ্ট তারিখের সিম্বল লিস্ট"""
+    date = fix_date_format(date)
+    data = hf_manager.read_csv_file(date)
+    if data is None:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    start_idx = 0
+    if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
+        start_idx = 1
+    
+    all_data = data[start_idx:]
+    symbols = [row[0] for row in all_data if row and len(row) > 0]
+    
+    return {"date": date, "total": len(symbols), "symbols": symbols}
+
+# ==================== TELEGRAM BOT SETUP ====================
+
+async def run_bot():
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not token:
+        print("❌ TELEGRAM_BOT_TOKEN not set!")
+        return
+
+    try:
+        application = Application.builder().token(token).build()
+
+        # বেসিক কমান্ড
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CommandHandler("list", list_command))
+        application.add_handler(CommandHandler("insight", insight_command))
+        application.add_handler(CommandHandler("reload", reload_command))
+        application.add_handler(CommandHandler("clear", clear_command))
+        application.add_handler(CommandHandler("yesclear", yesclear_command))
+        application.add_handler(CommandHandler("files", files_command))
+        application.add_handler(CommandHandler("view", view_command))
+        application.add_handler(CommandHandler("deletefile", deletefile_command))
+        application.add_handler(CommandHandler("confirmdelete", confirmdelete_command))
+        application.add_handler(CommandHandler("symbols", symbols_command))
+        application.add_handler(CommandHandler("deletesymbol", deletesymbol_command))
+        application.add_handler(CommandHandler("search", search_command))
+        application.add_handler(CommandHandler("status", status_command))
+        application.add_handler(CommandHandler("cancel", cancel_command))
+
+        # পোর্টফোলিও কমান্ড (ইনলাইন বাটন সহ)
+        application.add_handler(CommandHandler("portfolio", portfolio_command))
+
+        # অ্যাডভান্সড ফিচার কমান্ড
+        application.add_handler(CommandHandler("chart", chart_command_wrapper))
+        application.add_handler(CommandHandler("compare", compare_command_wrapper))
+        application.add_handler(CommandHandler("notify", notify_command_wrapper))
+        application.add_handler(CommandHandler("setalert", setalert_command_wrapper))
+        application.add_handler(CommandHandler("backtest", backtest_command_wrapper))
+        application.add_handler(CommandHandler("export", export_command_wrapper))
+
+        # ইনলাইন বাটন কলব্যাক হ্যান্ডলার
+        application.add_handler(CallbackQueryHandler(category_callback_handler, pattern='^(vs|vg|vm|vw|iw|cw)_'))
+        application.add_handler(CallbackQueryHandler(symbol_detail_callback_handler, pattern='^sym_'))
+        application.add_handler(CallbackQueryHandler(report_callback_handler, pattern='^report_'))
+        application.add_handler(CallbackQueryHandler(back_callback_handler, pattern='^back_'))
+        application.add_handler(CallbackQueryHandler(special_command_callback_handler, pattern='^(brrr|hscore|trec|avoid)_'))
+
+        # ট্রেড অ্যানালাইটিক্স হ্যান্ডলার যোগ করুন
+        add_trade_analytics_handlers(application)
+
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+        print("🤖 Telegram Bot starting with Inline Buttons, Trade Analytics & Advanced Features...")
+        await application.initialize()
+        await application.start()
+        await application.updater.start_polling()
+
+        while True:
+            await asyncio.sleep(1)
+    except Exception as e:
+        print(f"❌ Error: {e}")
 
 # ==================== MAIN ====================
 
