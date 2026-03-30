@@ -1,4 +1,4 @@
-# portfolio.py - সম্পূর্ণ আপডেটেড (স্কোর এবং সাব-ওয়েব ঠিক করা)
+# portfolio.py - সম্পূর্ণ ফিক্সড (স্কোর এবং সাব-ওয়েব ঠিক করা)
 
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -40,7 +40,7 @@ class PortfolioAnalyzer:
         try:
             # Remove % sign if present
             score_str = str(score_str).replace('%', '').strip()
-            if not score_str:
+            if not score_str or score_str == '-':
                 return "medium"
             score = int(score_str)
             if score >= 80:
@@ -58,7 +58,7 @@ class PortfolioAnalyzer:
         """স্কোর অনুযায়ী ইমোজি"""
         try:
             score_str = str(score).replace('%', '').strip()
-            if not score_str:
+            if not score_str or score_str == '-':
                 return "📊"
             score_num = int(score_str)
             if score_num >= 85:
@@ -79,7 +79,7 @@ class PortfolioAnalyzer:
             return "⭐"
 
     def analyze_portfolio(self, data):
-        """পোর্টফোলিও ডাটা অ্যানালাইসিস করুন - সাব-ওয়েব সহ"""
+        """পোর্টফোলিও ডাটা অ্যানালাইসিস করুন - স্কোর এবং সাব-ওয়েব সহ"""
         if not data:
             return None
 
@@ -89,9 +89,9 @@ class PortfolioAnalyzer:
             'good': {'count': 0, 'symbols': [], 'scores': [], 'subwaves': []},
             'medium': {'count': 0, 'symbols': [], 'scores': [], 'subwaves': []},
             'weak': {'count': 0, 'symbols': [], 'scores': [], 'subwaves': []},
-            'impulse': {'count': 0, 'symbols': [], 'subwaves': []},
-            'corrective': {'count': 0, 'symbols': [], 'subwaves': []},
-            'best_rrr': {'value': 0, 'symbol': '', 'rrr': ''},
+            'impulse': {'count': 0, 'symbols': [], 'scores': [], 'subwaves': []},
+            'corrective': {'count': 0, 'symbols': [], 'scores': [], 'subwaves': []},
+            'best_rrr': {'value': 0, 'symbol': '', 'rrr': '', 'score': ''},
             'highest_score': {'value': 0, 'symbol': '', 'score': ''},
             'top_recommendations': [],
             'avoid_symbols': []
@@ -110,9 +110,14 @@ class PortfolioAnalyzer:
             score_str = "-"
             if len(row) > 9:
                 raw_score = row[9]
-                if raw_score and raw_score.strip():
-                    # Remove any % sign and clean
-                    score_str = raw_score.strip().replace('%', '')
+                if raw_score and str(raw_score).strip():
+                    # Remove % sign and clean
+                    score_str = str(raw_score).strip().replace('%', '')
+                    # Check if it's a valid number
+                    try:
+                        int(score_str)
+                    except:
+                        score_str = "-"
                 else:
                     score_str = "-"
             
@@ -123,15 +128,15 @@ class PortfolioAnalyzer:
             sub_wave = "-"
             if len(row) > 2:
                 raw_subwave = row[2]
-                if raw_subwave and raw_subwave.strip() and raw_subwave.strip() != "":
+                if raw_subwave and str(raw_subwave).strip() and str(raw_subwave).strip() != "":
                     # Keep the original subwave text
-                    sub_wave = raw_subwave.strip()
+                    sub_wave = str(raw_subwave).strip()
                 else:
                     sub_wave = "-"
             else:
                 sub_wave = "-"
             
-            print(f"📊 {symbol}: wave={wave_text}, subwave='{sub_wave}', score='{score_str}'")
+            print(f"📊 Row {idx}: {symbol} | score='{score_str}' | subwave='{sub_wave}'")
 
             # স্কোর অনুযায়ী ক্যাটাগরি
             category = self.categorize_by_score(score_str)
@@ -164,15 +169,17 @@ class PortfolioAnalyzer:
                 stats['weak']['scores'].append(score_str)
                 stats['weak']['subwaves'].append(sub_wave)
 
-            # ওয়েভ টাইপ
+            # ওয়েভ টাইপ (স্কোর সহ)
             wave_type = self.get_wave_type(wave_text)
             if wave_type == 'impulse':
                 stats['impulse']['count'] += 1
                 stats['impulse']['symbols'].append(symbol)
+                stats['impulse']['scores'].append(score_str)
                 stats['impulse']['subwaves'].append(sub_wave)
             else:
                 stats['corrective']['count'] += 1
                 stats['corrective']['symbols'].append(symbol)
+                stats['corrective']['scores'].append(score_str)
                 stats['corrective']['subwaves'].append(sub_wave)
 
             # সেরা RRR
@@ -181,6 +188,7 @@ class PortfolioAnalyzer:
                 stats['best_rrr']['value'] = rrr_value
                 stats['best_rrr']['symbol'] = symbol
                 stats['best_rrr']['rrr'] = rrr_str
+                stats['best_rrr']['score'] = score_str
 
             # সর্বোচ্চ স্কোর
             if score_val > stats['highest_score']['value']:
@@ -192,7 +200,7 @@ class PortfolioAnalyzer:
         for i, sym in enumerate(stats['very_strong']['symbols'][:5]):
             stats['top_recommendations'].append(sym)
 
-        # এড়িয়ে চলুন (স্কোর 50 এর নিচে)
+        # এড়িয়ে চলুন (স্কোর 40 এর নিচে)
         for sym in stats['weak']['symbols']:
             stats['avoid_symbols'].append(sym)
             
@@ -201,6 +209,8 @@ class PortfolioAnalyzer:
         print(f"   Good: {stats['good']['count']} symbols")
         print(f"   Medium: {stats['medium']['count']} symbols")
         print(f"   Weak: {stats['weak']['count']} symbols")
+        print(f"   Impulse: {stats['impulse']['count']} symbols")
+        print(f"   Corrective: {stats['corrective']['count']} symbols")
 
         return stats
 
@@ -243,7 +253,7 @@ class PortfolioAnalyzer:
             if len(stats['avoid_symbols']) > 3:
                 avoid_list.append("...")
             avoid_text = ", ".join(avoid_list)
-            report += f"⚠️ **এড়িয়ে চলুন:** {avoid_text} (স্কোর <50)\n"
+            report += f"⚠️ **এড়িয়ে চলুন:** {avoid_text} (স্কোর <40)\n"
 
         report += "\n🔽 **নিচের বাটনে ক্লিক করে বিস্তারিত দেখুন**"
 
@@ -296,6 +306,12 @@ class PortfolioAnalyzer:
         elif "শক্তিশালী" in title:
             category_name = "খুব শক্তিশালী"
             emoji = "🔥"
+        elif "ইম্পালস" in title:
+            category_name = "ইম্পালস ওয়েভ"
+            emoji = "📈"
+        elif "করেকটিভ" in title:
+            category_name = "করেকটিভ ওয়েভ"
+            emoji = "🔄"
         else:
             category_name = title.split("(")[0].strip()
             emoji = "📊"
@@ -323,13 +339,13 @@ class PortfolioAnalyzer:
                 subwave = item[2] if len(item) > 2 else "-"
 
             # Clean subwave - keep full text
-            if subwave and subwave.strip() and subwave.strip() != "":
-                subwave_display = subwave.strip()
+            if subwave and str(subwave).strip() and str(subwave).strip() != "":
+                subwave_display = str(subwave).strip()
             else:
                 subwave_display = "-"
 
             # Clean score
-            if score and score != "-" and str(score).strip():
+            if score and str(score) != "-" and str(score).strip():
                 score_display = str(score).replace('%', '').strip()
                 emoji_score = self.get_score_emoji(score)
                 result += f"{serial:<6} {symbol:<15} {score_display}/100 {emoji_score:<5} {subwave_display:<25}\n"
@@ -399,8 +415,12 @@ class PortfolioAnalyzer:
                 score_str = "-"
                 if len(row) > 9:
                     raw_score = row[9]
-                    if raw_score and raw_score.strip():
-                        score_str = raw_score.strip().replace('%', '')
+                    if raw_score and str(raw_score).strip():
+                        score_str = str(raw_score).strip().replace('%', '')
+                        try:
+                            int(score_str)
+                        except:
+                            score_str = "-"
                     else:
                         score_str = "-"
                 
@@ -411,8 +431,8 @@ class PortfolioAnalyzer:
                 
                 # সাব-ওয়েব নিন
                 sub_wave = "-"
-                if len(row) > 2 and row[2] and row[2].strip():
-                    sub_wave = row[2].strip()
+                if len(row) > 2 and row[2] and str(row[2]).strip():
+                    sub_wave = str(row[2]).strip()
 
                 return {
                     'rank': idx + 1,
