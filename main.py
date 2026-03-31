@@ -1,3 +1,5 @@
+# main.py - সম্পূর্ণ আপডেটেড স্টক ডাটা বট
+
 import os
 import csv
 import json
@@ -6,7 +8,7 @@ import asyncio
 import io
 import tempfile
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 import uvicorn
@@ -21,11 +23,13 @@ from trade_analytics import add_trade_analytics_handlers
 # Advanced Features মডিউল ইম্পোর্ট করুন
 from advanced_features import (
     AdvancedFeatures, chart_command, compare_command, 
-    notify_command, setalert_command, backtest_command, export_command
+    setalert_command, stopalert_command, myalerts_command,
+    backtest_command, export_command, weekly_command,
+    watchlist_command, stats_command
 )
 
 # FastAPI app
-app_fastapi = FastAPI(title="Stock Data Bot API", version="1.0.0")
+app_fastapi = FastAPI(title="Stock Data Bot API", version="2.0.0")
 
 # Hugging Face configuration
 HF_TOKEN = os.environ.get("HF_TOKEN")
@@ -129,14 +133,19 @@ class HuggingFaceManager:
             traceback.print_exc()
             return None
 
-    def save_csv_file(self, date, data):
-        """CSV ফাইল Hugging Face-এ সেভ করুন"""
+    def save_csv_file(self, date, data, advanced_features=None):
+        """CSV ফাইল Hugging Face-এ সেভ করুন এবং অটো এলার্ট ট্রিগার করুন"""
         if not self.token:
             return False, "HF_TOKEN সেট নেই!"
 
         filename = f"{self.folder}/{date}.csv"
 
         try:
+            # পুরনো ডাটা পড়ুন (নোটিফিকেশনের জন্য)
+            old_data = None
+            if advanced_features:
+                old_data = self.read_csv_file(date)
+            
             csv_buffer = io.StringIO()
             writer = csv.writer(csv_buffer)
             writer.writerows(data)
@@ -151,9 +160,34 @@ class HuggingFaceManager:
                 repo_type=self.repo_type
             )
 
+            # অটো এলার্ট ট্রিগার করুন (নতুন সিম্বল চেক)
+            if advanced_features and old_data:
+                # হেডার বাদ দিন
+                start_idx = 0
+                if old_data and old_data[0] and len(old_data[0]) > 0 and old_data[0][0] == "symbol":
+                    start_idx = 1
+                old_data_content = old_data[start_idx:]
+                
+                start_idx = 0
+                if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
+                    start_idx = 1
+                new_data_content = data[start_idx:]
+                
+                # ব্যাকগ্রাউন্ডে নোটিফিকেশন চেক করুন
+                asyncio.create_task(
+                    self._check_and_notify(advanced_features, new_data_content, old_data_content, date)
+                )
+
             return True, f"✅ সেভ হয়েছে: {filename}"
         except Exception as e:
             return False, f"❌ Error: {str(e)}"
+    
+    async def _check_and_notify(self, advanced_features, new_data, old_data, date):
+        """ব্যাকগ্রাউন্ডে নোটিফিকেশন চেক করুন"""
+        try:
+            advanced_features.check_and_notify_new_symbols(new_data, old_data, date)
+        except Exception as e:
+            print(f"নোটিফিকেশন চেক করতে ব্যর্থ: {e}")
 
     def delete_csv_file(self, date):
         """নির্দিষ্ট তারিখের CSV ফাইল ডিলিট করুন"""
@@ -269,7 +303,7 @@ class StockDataBot:
 
         return items
 
-    def add_csv_data(self, csv_text):
+    def add_csv_data(self, csv_text, advanced_features=None):
         """শুধু আজকের ডাটায় যোগ করুন"""
         lines = csv_text.strip().split('\n')
         added = 0
@@ -295,7 +329,7 @@ class StockDataBot:
 
         if added > 0:
             data_to_save = [COLUMNS] + self.current_data
-            success, msg = hf_manager.save_csv_file(self.current_date, data_to_save)
+            success, msg = hf_manager.save_csv_file(self.current_date, data_to_save, advanced_features)
             if success:
                 result = f"✅ {added} টি ডাটা যোগ হয়েছে। মোট: {len(self.current_data)} টি"
                 if duplicate_skipped > 0:
@@ -308,11 +342,11 @@ class StockDataBot:
             return f"❌ {duplicate_skipped} টি ডুপ্লিকেট সিম্বল। কোনো নতুন ডাটা যোগ হয়নি।"
         return "❌ কোনো নতুন ডাটা যোগ হয়নি।"
 
-    def clear_current_data(self):
+    def clear_current_data(self, advanced_features=None):
         """শুধু আজকের ডাটা ক্লিয়ার করুন"""
         count = len(self.current_data)
         self.current_data = []
-        success, msg = hf_manager.save_csv_file(self.current_date, [COLUMNS])
+        success, msg = hf_manager.save_csv_file(self.current_date, [COLUMNS], advanced_features)
         if success:
             return f"✅ {count} টি ডাটা মুছে ফেলা হয়েছে।"
         return f"⚠️ ডাটা ক্লিয়ার হয়েছে কিন্তু সেভ করতে পারেনি: {msg}"
@@ -322,8 +356,9 @@ bot = StockDataBot()
 # পোর্টফোলিও অ্যানালাইজার তৈরি করুন
 portfolio_analyzer = PortfolioAnalyzer(hf_manager, bot)
 
-# Advanced Features অবজেক্ট
-advanced_features = AdvancedFeatures(hf_manager, bot)
+# Advanced Features অবজেক্ট (HF Manager এবং Bot সহ)
+advanced_features = AdvancedFeatures(hf_manager, None)  # Bot পরে সেট হবে
+advanced_features.bot = None  # Bot পরে সেট হবে
 
 # ==================== HELPER FUNCTIONS ====================
 
@@ -390,28 +425,40 @@ def get_score_text(score):
 # ==================== ADVANCED FEATURES WRAPPERS ====================
 
 async def chart_command_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await chart_command(update, context, hf_manager, bot)
+    await chart_command(update, context)
 
 async def compare_command_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await compare_command(update, context, hf_manager, bot)
-
-async def notify_command_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await notify_command(update, context)
+    await compare_command(update, context)
 
 async def setalert_command_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await setalert_command(update, context)
 
+async def stopalert_command_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await stopalert_command(update, context)
+
+async def myalerts_command_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await myalerts_command(update, context)
+
 async def backtest_command_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await backtest_command(update, context, hf_manager)
+    await backtest_command(update, context)
 
 async def export_command_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await export_command(update, context, hf_manager)
+    await export_command(update, context)
+
+async def weekly_command_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await weekly_command(update, context)
+
+async def watchlist_command_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await watchlist_command(update, context)
+
+async def stats_command_wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await stats_command(update, context)
 
 # ==================== TELEGRAM HANDLERS ====================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🤖 **স্টক ডাটা বট - Hugging Face স্টোরেজ**\n\n"
+        "🤖 **স্টক ডাটা বট - Hugging Face স্টোরেজ v2.0**\n\n"
         "📝 **ডাটা যোগ করুন (11 কলাম):**\n"
         "`ADVENT,Impulse (Up),Wave 5 of 3,13.8-14.2,13.2,15.0,16.0,17.5,1:2.5,68,মূল্য 13.0 টাকার নিচে ব্রেক করতে পারেনি...`\n\n"
         "📚 **বেসিক কমান্ড:**\n"
@@ -423,8 +470,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/files` - সব CSV ফাইলের তালিকা\n"
         "`/view [তারিখ] [পৃষ্ঠা]` - কার্ড স্টাইলে ফাইল দেখুন\n"
         "`/symbols [তারিখ]` - ফাইলের সিম্বল দেখুন\n"
-        "`/search [সিম্বল]` - সব ফাইলে সিম্বল খুঁজুন (কার্ড ফরম্যাটে)\n"
-        "`/searchsymbol [সিম্বল]` - ট্রেড ডাটাবেজে সিম্বল খুঁজুন\n"
+        "`/search [সিম্বল]` - সব ফাইলে সিম্বল খুঁজুন\n"
         "`/deletesymbol [তারিখ] [সিম্বল]` - সিম্বল ডিলিট\n"
         "`/deletefile [তারিখ]` - ফাইল ডিলিট\n"
         "`/clear` - আজকের ডাটা ক্লিয়ার\n"
@@ -435,7 +481,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/compare [তারিখ1] [তারিখ2]` - পোর্টফোলিও তুলনা\n"
         "`/backtest [স্টার্ট] [এন্ড] [স্কোর]` - ব্যাকটেস্টিং\n"
         "`/export [তারিখ]` - CSV এক্সপোর্ট\n"
-        "`/setalert [স্কোর]` - অ্যালার্ট সেট করুন\n\n"
+        "`/setalert [স্কোর]` - অটো এলার্ট সেট করুন\n"
+        "`/myalerts` - আপনার অ্যালার্ট দেখুন\n"
+        "`/watchlist` - নতুন সিম্বল দেখুন\n"
+        "`/weekly` - সাপ্তাহিক রিপোর্ট\n\n"
         "📊 **স্কোর রেটিং:**\n"
         "💎 85+ এক্সট্রিম | 🔥 80-84 খুব শক্তিশালী | ⭐ 70-79 শক্তিশালী\n"
         "✅ 60-69 ভাল | 📈 50-59 মধ্যম | ⚠️ 40-49 দুর্বল | ❌ <40 খুব দুর্বল",
@@ -444,7 +493,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = """
-📚 **স্টক ডাটা বট - সম্পূর্ণ গাইড**
+📚 **স্টক ডাটা বট - সম্পূর্ণ গাইড v2.0**
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📝 **ডাটা যোগ করার নিয়ম (11 কলাম)**
@@ -456,13 +505,23 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 6. TP1 | 7. TP2 | 8. TP3 | 9. RRR | 10. স্কোর | 11. কুইক ইনসাইট
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔔 **অটো এলার্ট সিস্টেম (নতুন!)**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• `/setalert 70` - 70+ স্কোরের সিম্বল এলে নোটিফিকেশন
+• `/setalert 80 wave:impulse` - ইম্পালস ওয়েভের 80+ স্কোর
+• `/setalert 60 pattern:bullish` - বুলিশ প্যাটার্নের 60+ স্কোর
+• `/myalerts` - আপনার সক্রিয় অ্যালার্ট দেখুন
+• `/stopalert` - অ্যালার্ট বন্ধ করুন
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📊 **অ্যাডভান্সড ফিচার**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 • `/chart 29-03-2026` - স্কোর ডিস্ট্রিবিউশন চার্ট
 • `/compare 25-03-2026 29-03-2026` - পোর্টফোলিও তুলনা
 • `/backtest 01-03-2026 29-03-2026 70` - ব্যাকটেস্টিং
 • `/export 29-03-2026` - CSV এক্সপোর্ট
-• `/setalert 70` - 70+ স্কোরের অ্যালার্ট
+• `/weekly` - সাপ্তাহিক রিপোর্ট
+• `/watchlist` - আজকের নতুন সিম্বল
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔍 **ইনসাইট দেখার নিয়ম**
@@ -484,13 +543,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • `/symbols 25-03-2026` - সিম্বল লিস্ট
 • `/deletesymbol 25-03-2026 ADVENT` - সিম্বল ডিলিট
 • `/search ADVENT` - সব ফাইলে খুঁজুন (কার্ড ফরম্যাটে)
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 **আজকের ডাটা**
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• `/list` - আজকের ডাটা দেখুন
-• `/clear` - আজকের সব ডাটা মুছুন
-• `/yesclear` - ক্লিয়ার কনফার্ম
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📊 **পোর্টফোলিও অ্যানালাইসিস (ইনলাইন বাটন সহ)**
@@ -597,7 +649,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if ',' in text:
         await update.message.reply_text("⏳ ডাটা যোগ করা হচ্ছে...")
-        result = bot.add_csv_data(text)
+        result = bot.add_csv_data(text, advanced_features)
         await update.message.reply_text(result)
     else:
         await update.message.reply_text(
@@ -679,7 +731,7 @@ async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def yesclear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('confirm'):
-        result = bot.clear_current_data()
+        result = bot.clear_current_data(advanced_features)
         await update.message.reply_text(result)
         context.user_data['confirm'] = False
     else:
@@ -976,7 +1028,7 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         results = hf_manager.search_symbol_all_files(search_symbol)
-        
+
         if not results:
             await status_msg.edit_text(f"❌ '{search_symbol}' কোনো ফাইলে পাওয়া যায়নি।")
             return
@@ -1006,7 +1058,7 @@ def get_search_results_card(results, search_symbol):
     for i, r in enumerate(results):
         row = r['row']
         date = r['date']
-        
+
         # Extract data from row
         symbol = row[0] if len(row) > 0 else "-"
         main_wave = row[1] if len(row) > 1 else "-"
@@ -1019,12 +1071,12 @@ def get_search_results_card(results, search_symbol):
         rrr = row[8] if len(row) > 8 else "-"
         score = row[9] if len(row) > 9 else "-"
         insight = row[10] if len(row) > 10 else "কোনো ইনসাইট নেই"
-        
+
         # Clean score
         score_clean = str(score).replace('%', '').strip()
         score_emoji = get_score_emoji(score)
         score_text = get_score_text(score)
-        
+
         result += f"╔══════════════════════════════════════════════════════════════════════════════╗\n"
         result += f"║ #{i+1} {symbol} {score_emoji}  |  📅 {date}\n"
         result += f"╠══════════════════════════════════════════════════════════════════════════════╣\n"
@@ -1034,7 +1086,7 @@ def get_search_results_card(results, search_symbol):
         result += f"║ 📈 এন্ট্রি  : {entry}  |  🛑 স্টপ: {stop}\n"
         result += f"║ 🎯 টার্গেট  : {tp1} → {tp2} → {tp3}  |  📊 RRR: {rrr}\n"
         result += f"║ 🏆 স্কোর    : {score_clean}/100 {score_emoji}  |  {score_text}\n"
-        
+
         insight_lines = []
         for j in range(0, len(insight), 70):
             insight_lines.append(insight[j:j+70])
@@ -1043,7 +1095,7 @@ def get_search_results_card(results, search_symbol):
                 result += f"║ 💡 ইনসাইট  : {line}\n"
             else:
                 result += f"║              {line}\n"
-        
+
         result += f"╚══════════════════════════════════════════════════════════════════════════════╝\n\n"
 
     result += "```"
@@ -1052,9 +1104,11 @@ def get_search_results_card(results, search_symbol):
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """বটের স্ট্যাটাস দেখান"""
     dates = hf_manager.get_all_csv_files()
+    
+    active_alerts = advanced_features.get_active_alerts_count()
 
     status_text = f"""
-📊 **বট স্ট্যাটাস**
+📊 **বট স্ট্যাটাস v2.0**
 
 📁 Hugging Face: `{HF_REPO}/{HF_FOLDER}/`
 🔑 HF_TOKEN: {'✅ সেট আছে' if HF_TOKEN else '❌ সেট নেই'}
@@ -1064,6 +1118,9 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📋 মোট কলাম: `{len(COLUMNS)}` টি
 
 📂 মোট CSV ফাইল: `{len(dates)}` টি
+🔔 সক্রিয় অ্যালার্ট: `{active_alerts}` জন
+
+📊 **অ্যাডভান্সড ফিচার:** ✅ চার্ট | ✅ কম্পেয়ার | ✅ ব্যাকটেস্ট | ✅ এক্সপোর্ট | ✅ অটো এলার্ট
 """
 
     if dates:
@@ -1378,7 +1435,7 @@ async def special_command_callback_handler(update: Update, context: ContextTypes
         score = row[9] if len(row) > 9 else "-"
         score_emoji = get_score_emoji(score)
         score_text = get_score_text(score)
-        
+
         main_wave = row[1] if len(row) > 1 else "-"
         sub_wave = row[2] if len(row) > 2 and row[2].strip() else "-"
         entry = row[3] if len(row) > 3 else "-"
@@ -1388,7 +1445,7 @@ async def special_command_callback_handler(update: Update, context: ContextTypes
         tp3 = row[7] if len(row) > 7 else "-"
         rrr = row[8] if len(row) > 8 else "-"
         insight = row[10] if len(row) > 10 else "কোনো ইনসাইট নেই"
-        
+
         card = f"╔══════════════════════════════════════════════════════════════════════════════╗\n"
         card += f"║ #{rank} {row[0]} {score_emoji}\n"
         card += f"╠══════════════════════════════════════════════════════════════════════════════╣\n"
@@ -1398,7 +1455,7 @@ async def special_command_callback_handler(update: Update, context: ContextTypes
         card += f"║ 📈 এন্ট্রি  : {entry}  |  🛑 স্টপ: {stop}\n"
         card += f"║ 🎯 টার্গেট  : {tp1} → {tp2} → {tp3}  |  📊 RRR: {rrr}\n"
         card += f"║ 🏆 স্কোর    : {score}/100 {score_emoji}  |  {score_text}\n"
-        
+
         insight_lines = []
         for j in range(0, len(insight), 70):
             insight_lines.append(insight[j:j+70])
@@ -1503,18 +1560,20 @@ async def special_command_callback_handler(update: Update, context: ContextTypes
 async def home():
     return {
         "status": "active",
-        "bot": "Stock Data Bot with Portfolio Analytics",
+        "bot": "Stock Data Bot with Portfolio Analytics & Auto Alert",
+        "version": "2.0.0",
         "hf_repo": HF_REPO,
         "today_records": len(bot.current_data),
         "columns": len(COLUMNS),
         "columns_list": COLUMNS,
-        "features": ["Chart", "Compare", "Backtest", "Export", "Alert"],
+        "features": ["Chart", "Compare", "Backtest", "Export", "Auto Alert"],
+        "active_alerts": advanced_features.get_active_alerts_count(),
         "time": datetime.now().isoformat()
     }
 
 @app_fastapi.get("/health")
 async def health():
-    return {"status": "healthy"}
+    return {"status": "healthy", "version": "2.0.0"}
 
 @app_fastapi.get("/files")
 async def get_files():
@@ -1527,14 +1586,14 @@ async def get_stats(date: str):
     data = hf_manager.read_csv_file(date)
     if data is None:
         raise HTTPException(status_code=404, detail="File not found")
-    
+
     start_idx = 0
     if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
         start_idx = 1
-    
+
     all_data = data[start_idx:]
     stats = portfolio_analyzer.analyze_portfolio(all_data)
-    
+
     return stats
 
 @app_fastapi.get("/symbols/{date}")
@@ -1544,15 +1603,32 @@ async def get_symbols(date: str):
     data = hf_manager.read_csv_file(date)
     if data is None:
         raise HTTPException(status_code=404, detail="File not found")
-    
+
     start_idx = 0
     if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
         start_idx = 1
-    
+
     all_data = data[start_idx:]
     symbols = [row[0] for row in all_data if row and len(row) > 0]
-    
+
     return {"date": date, "total": len(symbols), "symbols": symbols}
+
+@app_fastapi.get("/alerts")
+async def get_alerts():
+    """সক্রিয় অ্যালার্টের তথ্য"""
+    return {
+        "active_alerts": advanced_features.get_active_alerts_count(),
+        "alerts": [
+            {
+                "user_id": uid,
+                "min_score": alert['min_score'],
+                "filters": alert.get('filters', {}),
+                "created_at": alert['created_at'].isoformat() if alert.get('created_at') else None
+            }
+            for uid, alert in advanced_features.user_alerts.items()
+            if alert.get('active', False)
+        ]
+    }
 
 # ==================== TELEGRAM BOT SETUP ====================
 
@@ -1564,6 +1640,12 @@ async def run_bot():
 
     try:
         application = Application.builder().token(token).build()
+        
+        # Advanced Features-এ bot সেট করুন
+        advanced_features.bot = application.bot
+        
+        # নোটিফিকেশন ওয়ার্কার শুরু করুন
+        await advanced_features.start_notification_worker()
 
         # বেসিক কমান্ড
         application.add_handler(CommandHandler("start", start))
@@ -1589,10 +1671,14 @@ async def run_bot():
         # অ্যাডভান্সড ফিচার কমান্ড
         application.add_handler(CommandHandler("chart", chart_command_wrapper))
         application.add_handler(CommandHandler("compare", compare_command_wrapper))
-        application.add_handler(CommandHandler("notify", notify_command_wrapper))
         application.add_handler(CommandHandler("setalert", setalert_command_wrapper))
+        application.add_handler(CommandHandler("stopalert", stopalert_command_wrapper))
+        application.add_handler(CommandHandler("myalerts", myalerts_command_wrapper))
         application.add_handler(CommandHandler("backtest", backtest_command_wrapper))
         application.add_handler(CommandHandler("export", export_command_wrapper))
+        application.add_handler(CommandHandler("weekly", weekly_command_wrapper))
+        application.add_handler(CommandHandler("watchlist", watchlist_command_wrapper))
+        application.add_handler(CommandHandler("stats", stats_command_wrapper))
 
         # ইনলাইন বাটন কলব্যাক হ্যান্ডলার
         application.add_handler(CallbackQueryHandler(category_callback_handler, pattern='^(vs|vg|vm|vw|iw|cw)_'))
@@ -1606,19 +1692,22 @@ async def run_bot():
 
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-        print("🤖 Telegram Bot starting with Inline Buttons, Trade Analytics & Advanced Features...")
+        print("🤖 Telegram Bot starting with Auto Alert & Advanced Features...")
+        print(f"   📊 Version: 2.0.0")
+        print(f"   🔔 Auto Alert: Active")
+        
         await application.initialize()
         await application.start()
         await application.updater.start_polling()
 
         while True:
             await asyncio.sleep(1)
+            
     except Exception as e:
         print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
 
-#এডভান্স ফেইচার্স
-application.bot_data['hf_manager'] = hf_manager
-application.bot_data['bot'] = bot
 # ==================== MAIN ====================
 
 def main():
@@ -1633,6 +1722,7 @@ def main():
 
     port = int(os.environ.get("PORT", 10000))
     print(f"🌐 FastAPI starting on port {port}")
+    print(f"📊 Stock Data Bot v2.0 with Auto Alert is running!")
     uvicorn.run(app_fastapi, host='0.0.0.0', port=port)
 
 if __name__ == "__main__":
