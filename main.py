@@ -1616,6 +1616,9 @@ async def run_bot():
     except Exception as e:
         print(f"❌ Error: {e}")
 
+#এডভান্স ফেইচার্স
+application.bot_data['hf_manager'] = hf_manager
+application.bot_data['bot'] = bot
 # ==================== MAIN ====================
 
 def main():
