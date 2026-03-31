@@ -423,7 +423,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/files` - সব CSV ফাইলের তালিকা\n"
         "`/view [তারিখ] [পৃষ্ঠা]` - কার্ড স্টাইলে ফাইল দেখুন\n"
         "`/symbols [তারিখ]` - ফাইলের সিম্বল দেখুন\n"
-        "`/search [সিম্বল]` - সব ফাইলে সিম্বল খুঁজুন\n"
+        "`/search [সিম্বল]` - সব ফাইলে সিম্বল খুঁজুন (কার্ড ফরম্যাটে)\n"
         "`/searchsymbol [সিম্বল]` - ট্রেড ডাটাবেজে সিম্বল খুঁজুন\n"
         "`/deletesymbol [তারিখ] [সিম্বল]` - সিম্বল ডিলিট\n"
         "`/deletefile [তারিখ]` - ফাইল ডিলিট\n"
@@ -483,7 +483,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 • `/symbols 25-03-2026` - সিম্বল লিস্ট
 • `/deletesymbol 25-03-2026 ADVENT` - সিম্বল ডিলিট
-• `/search ADVENT` - সব ফাইলে খুঁজুন
+• `/search ADVENT` - সব ফাইলে খুঁজুন (কার্ড ফরম্যাটে)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📊 **আজকের ডাটা**
@@ -960,7 +960,7 @@ async def deletesymbol_command(update: Update, context: ContextTypes.DEFAULT_TYP
     await update.message.reply_text(msg)
 
 async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """সব ফাইলে সিম্বল খুঁজুন"""
+    """সব ফাইলে সিম্বল খুঁজুন - কার্ড ফরম্যাটে"""
     if not context.args:
         await update.message.reply_text("❌ সিম্বল দিন। উদাহরণ: `/search ADVENT`")
         return
@@ -976,7 +976,13 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         results = hf_manager.search_symbol_all_files(search_symbol)
-        table = get_search_results_table(results, search_symbol)
+        
+        if not results:
+            await status_msg.edit_text(f"❌ '{search_symbol}' কোনো ফাইলে পাওয়া যায়নি।")
+            return
+
+        # কার্ড ফরম্যাটে ফলাফল দেখান
+        table = get_search_results_card(results, search_symbol)
 
         if len(table) > 4000:
             parts = [table[i:i+4000] for i in range(0, len(table), 4000)]
@@ -989,40 +995,59 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await status_msg.edit_text(f"❌ ত্রুটি: {str(e)}")
 
-def get_search_results_table(results, search_symbol):
-    """সার্চ রেজাল্ট দেখান"""
+def get_search_results_card(results, search_symbol):
+    """সার্চ রেজাল্ট কার্ড ফরম্যাটে দেখান - /view এর মতো"""
     if not results:
         return f"❌ '{search_symbol}' কোনো ফাইলে পাওয়া যায়নি।"
 
-    headers = ["#", "তারিখ", "সিম্বল", "এলিয়ট ওয়েব", "সাব-ওয়েব", "এন্ট্রি", "স্কোর"]
-    col_widths = [4, 12, 12, 18, 15, 12, 6]
-
-    table = f"🔍 **'{search_symbol}' পাওয়া গেছে {len(results)} টি ফাইলে:**\n\n```\n"
-
-    header_line = ""
-    for i, header in enumerate(headers):
-        header_line += f"{header:<{col_widths[i]}}"
-    table += header_line + "\n"
-    table += "-" * sum(col_widths) + "\n"
+    result = f"🔍 **'{search_symbol}' পাওয়া গেছে {len(results)} টি ফাইলে:**\n\n"
+    result += "```\n"
 
     for i, r in enumerate(results):
-        line = f"{i+1:<{col_widths[0]}}"
-        line += f"{r['date'][:col_widths[1]]:<{col_widths[1]}}"
-        line += f"{r['row'][0][:col_widths[2]]:<{col_widths[2]}}"
-        line += f"{r['row'][1][:col_widths[3]]:<{col_widths[3]}}" if len(r['row']) > 1 else f"{'':<{col_widths[3]}}"
-
-        sub_wave = r['row'][2] if len(r['row']) > 2 else "-"
-        line += f"{sub_wave[:col_widths[4]]:<{col_widths[4]}}"
-
-        line += f"{r['row'][3][:col_widths[5]]:<{col_widths[5]}}" if len(r['row']) > 3 else f"{'':<{col_widths[5]}}"
-
-        score = r['row'][9] if len(r['row']) > 9 else "-"
+        row = r['row']
+        date = r['date']
+        
+        # Extract data from row
+        symbol = row[0] if len(row) > 0 else "-"
+        main_wave = row[1] if len(row) > 1 else "-"
+        sub_wave = row[2] if len(row) > 2 and row[2].strip() else "-"
+        entry = row[3] if len(row) > 3 else "-"
+        stop = row[4] if len(row) > 4 else "-"
+        tp1 = row[5] if len(row) > 5 else "-"
+        tp2 = row[6] if len(row) > 6 else "-"
+        tp3 = row[7] if len(row) > 7 else "-"
+        rrr = row[8] if len(row) > 8 else "-"
+        score = row[9] if len(row) > 9 else "-"
+        insight = row[10] if len(row) > 10 else "কোনো ইনসাইট নেই"
+        
+        # Clean score
+        score_clean = str(score).replace('%', '').strip()
         score_emoji = get_score_emoji(score)
-        line += f"{score}/100 {score_emoji}"
-        table += line + "\n"
+        score_text = get_score_text(score)
+        
+        result += f"╔══════════════════════════════════════════════════════════════════════════════╗\n"
+        result += f"║ #{i+1} {symbol} {score_emoji}  |  📅 {date}\n"
+        result += f"╠══════════════════════════════════════════════════════════════════════════════╣\n"
+        result += f"║ 🌊 এলিয়ট ওয়েব : {main_wave}\n"
+        if sub_wave != "-":
+            result += f"║ 📍 সাব-ওয়েব    : {sub_wave}\n"
+        result += f"║ 📈 এন্ট্রি  : {entry}  |  🛑 স্টপ: {stop}\n"
+        result += f"║ 🎯 টার্গেট  : {tp1} → {tp2} → {tp3}  |  📊 RRR: {rrr}\n"
+        result += f"║ 🏆 স্কোর    : {score_clean}/100 {score_emoji}  |  {score_text}\n"
+        
+        insight_lines = []
+        for j in range(0, len(insight), 70):
+            insight_lines.append(insight[j:j+70])
+        for idx, line in enumerate(insight_lines):
+            if idx == 0:
+                result += f"║ 💡 ইনসাইট  : {line}\n"
+            else:
+                result += f"║              {line}\n"
+        
+        result += f"╚══════════════════════════════════════════════════════════════════════════════╝\n\n"
 
-    table += "```"
-    return table
+    result += "```"
+    return result
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """বটের স্ট্যাটাস দেখান"""
