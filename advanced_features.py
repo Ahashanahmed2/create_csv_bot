@@ -1,13 +1,14 @@
-# advanced_features.py - চার্ট, কম্পেয়ার, নোটিফিকেশন, ব্যাকটেস্ট, এক্সপোর্ট (সম্পূর্ণ আপডেটেড)
+# advanced_features.py - চার্ট, কম্পেয়ার, নোটিফিকেশন, ব্যাকটেস্ট, এক্সপোর্ট (অটো এলার্ট সহ সম্পূর্ণ আপডেটেড)
 
 import io
 import os
 import csv
+import asyncio
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Set, Any
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
@@ -17,9 +18,17 @@ plt.switch_backend('Agg')
 class AdvancedFeatures:
     """অ্যাডভান্সড ফিচারস - চার্ট, কম্পেয়ার, নোটিফিকেশন, ব্যাকটেস্ট, এক্সপোর্ট"""
 
-    def __init__(self, hf_manager, bot):
+    def __init__(self, hf_manager=None, bot=None):
         self.hf_manager = hf_manager
         self.bot = bot
+        # ইউজার অ্যালার্ট স্টোরেজ: {user_id: {'min_score': int, 'active': bool, 'created_at': datetime, 'filters': dict}}
+        self.user_alerts = {}
+        # প্রসেস করা সিম্বল ট্র্যাক করার জন্য: {user_id: {symbol_date: timestamp}}
+        self.processed_symbols = {}
+        # নোটিফিকেশন ক্যু
+        self.notification_queue = asyncio.Queue()
+        # ব্যাকগ্রাউন্ড টাস্ক রানিং ফ্ল্যাগ
+        self.notification_task = None
 
     def get_score_value(self, score_str):
         """স্কোর স্ট্রিং থেকে সংখ্যাসূচক মান বের করুন"""
@@ -141,8 +150,11 @@ class AdvancedFeatures:
             'high_score_symbols': high_score_symbols[:10]
         }
 
-    def compare_portfolios(self, date1: str, date2: str, hf_manager) -> str:
+    def compare_portfolios(self, date1: str, date2: str, hf_manager=None) -> str:
         """দুটি তারিখের পোর্টফোলিও তুলনা করুন"""
+        if hf_manager is None:
+            hf_manager = self.hf_manager
+            
         data1 = hf_manager.read_csv_file(date1)
         data2 = hf_manager.read_csv_file(date2)
 
@@ -353,8 +365,11 @@ class AdvancedFeatures:
         
         return bytes_io
 
-    def generate_weekly_report(self, dates: List[str], hf_manager) -> str:
+    def generate_weekly_report(self, dates: List[str], hf_manager=None) -> str:
         """সাপ্তাহিক রিপোর্ট জেনারেট করুন"""
+        if hf_manager is None:
+            hf_manager = self.hf_manager
+            
         weekly_stats = []
         
         for date in dates:
@@ -426,19 +441,267 @@ class AdvancedFeatures:
         else:
             return "❌ মার্কেট খুব দুর্বল। ক্যাশে থাকুন।"
 
+    # ==================== অটো এলার্ট ফাংশন ====================
+
+    def add_user_alert(self, user_id: int, min_score: int, filters: Dict = None):
+        """ইউজারের অ্যালার্ট সেটিংস যোগ করুন"""
+        self.user_alerts[user_id] = {
+            'min_score': min_score,
+            'active': True,
+            'created_at': datetime.now(),
+            'filters': filters or {},
+            'last_notification': None
+        }
+        
+        # ইউজারের জন্য প্রসেসড সিম্বল ট্র্যাকার ইনিশিয়ালাইজ করুন
+        if user_id not in self.processed_symbols:
+            self.processed_symbols[user_id] = set()
+
+    def remove_user_alert(self, user_id: int):
+        """ইউজারের অ্যালার্ট সরান"""
+        if user_id in self.user_alerts:
+            self.user_alerts[user_id]['active'] = False
+            del self.user_alerts[user_id]
+
+    def update_user_alert(self, user_id: int, min_score: int = None, filters: Dict = None):
+        """ইউজারের অ্যালার্ট আপডেট করুন"""
+        if user_id in self.user_alerts:
+            if min_score is not None:
+                self.user_alerts[user_id]['min_score'] = min_score
+            if filters is not None:
+                self.user_alerts[user_id]['filters'].update(filters)
+            self.user_alerts[user_id]['updated_at'] = datetime.now()
+
+    def get_user_alert(self, user_id: int) -> Dict:
+        """ইউজারের অ্যালার্ট সেটিংস পান"""
+        return self.user_alerts.get(user_id, None)
+
+    def get_active_alerts_count(self) -> int:
+        """সক্রিয় অ্যালার্টের সংখ্যা পান"""
+        return len([u for u in self.user_alerts.values() if u.get('active', False)])
+
+    def check_and_notify_new_symbols(self, new_data: List, old_data: List, date: str):
+        """নতুন সিম্বল চেক করে অ্যালার্ট সক্রিয় ইউজারদের নোটিফিকেশন পাঠান"""
+        if not new_data:
+            return
+        
+        # পুরনো সিম্বল সেট
+        old_symbols = set()
+        old_symbols_with_score = {}
+        
+        for row in old_data:
+            if row and len(row) > 0:
+                symbol = row[0]
+                old_symbols.add(symbol)
+                if len(row) > 9:
+                    old_symbols_with_score[symbol] = self.get_score_value(row[9])
+        
+        # নতুন সিম্বল চিহ্নিত করুন
+        new_symbol_entries = []
+        for row in new_data:
+            if row and len(row) > 0 and row[0] not in old_symbols:
+                score = self.get_score_value(row[9]) if len(row) > 9 else None
+                wave_type = row[1] if len(row) > 1 else 'N/A'
+                price = row[2] if len(row) > 2 else 'N/A'
+                pattern = row[3] if len(row) > 3 else 'N/A'
+                
+                new_symbol_entries.append({
+                    'symbol': row[0],
+                    'score': score,
+                    'wave_type': wave_type,
+                    'price': price,
+                    'pattern': pattern,
+                    'row_data': row
+                })
+        
+        if not new_symbol_entries:
+            return
+        
+        # প্রতিটি সক্রিয় অ্যালার্টের জন্য চেক করুন
+        for user_id, alert_config in self.user_alerts.items():
+            if not alert_config.get('active', False):
+                continue
+            
+            min_score = alert_config.get('min_score', 70)
+            filters = alert_config.get('filters', {})
+            
+            # ফিল্টার অ্যাপ্লাই করুন
+            relevant_symbols = []
+            for sym in new_symbol_entries:
+                # স্কোর ফিল্টার
+                if sym['score'] is not None and sym['score'] >= min_score:
+                    # ওয়েভ টাইপ ফিল্টার
+                    wave_filter = filters.get('wave_type')
+                    if wave_filter and wave_filter.lower() not in sym['wave_type'].lower():
+                        continue
+                    
+                    # প্যাটার্ন ফিল্টার
+                    pattern_filter = filters.get('pattern')
+                    if pattern_filter and pattern_filter.lower() not in sym['pattern'].lower():
+                        continue
+                    
+                    relevant_symbols.append(sym)
+            
+            if relevant_symbols:
+                # কিউতে নোটিফিকেশন যোগ করুন
+                asyncio.create_task(
+                    self._queue_notification(user_id, relevant_symbols, date)
+                )
+
+    async def _queue_notification(self, user_id: int, symbols: List[Dict], date: str):
+        """নোটিফিকেশন কিউতে যোগ করুন"""
+        await self.notification_queue.put({
+            'user_id': user_id,
+            'symbols': symbols,
+            'date': date,
+            'timestamp': datetime.now()
+        })
+
+    async def _process_notification_queue(self):
+        """নোটিফিকেশন কিউ প্রসেস করুন"""
+        while True:
+            try:
+                # কিউ থেকে নোটিফিকেশন নিন
+                notification = await self.notification_queue.get()
+                
+                user_id = notification['user_id']
+                symbols = notification['symbols']
+                date = notification['date']
+                
+                # ডুপ্লিকেট চেক করুন
+                new_symbols = []
+                processed_set = self.processed_symbols.get(user_id, set())
+                
+                for sym in symbols:
+                    unique_key = f"{sym['symbol']}_{date}"
+                    if unique_key not in processed_set:
+                        processed_set.add(unique_key)
+                        new_symbols.append(sym)
+                
+                self.processed_symbols[user_id] = processed_set
+                
+                if new_symbols:
+                    # নোটিফিকেশন পাঠান
+                    await self._send_notification_to_user(user_id, new_symbols, date)
+                
+                # কিউ টাস্ক সম্পন্ন
+                self.notification_queue.task_done()
+                
+                # রেট লিমিট - 1 সেকেন্ড অপেক্ষা
+                await asyncio.sleep(1)
+                
+            except Exception as e:
+                print(f"নোটিফিকেশন প্রসেস করতে ব্যর্থ: {e}")
+                await asyncio.sleep(5)
+
+    async def _send_notification_to_user(self, user_id: int, symbols: List[Dict], date: str):
+        """নির্দিষ্ট ইউজারকে নোটিফিকেশন পাঠান"""
+        if not self.bot:
+            return
+        
+        # সাজান এবং লিমিট
+        symbols.sort(key=lambda x: x['score'] if x['score'] else 0, reverse=True)
+        symbols = symbols[:15]  # সর্বোচ্চ ১৫টি সিম্বল
+        
+        # নোটিফিকেশন মেসেজ তৈরি করুন
+        message = f"🔔 **নতুন সিম্বল এলার্ট!**\n📅 {date}\n\n"
+        message += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        
+        for sym in symbols:
+            score_emoji = "💎" if sym['score'] and sym['score'] >= 90 else \
+                         "🔥" if sym['score'] and sym['score'] >= 80 else \
+                         "✅" if sym['score'] and sym['score'] >= 70 else \
+                         "📊" if sym['score'] and sym['score'] >= 60 else "📌"
+            
+            message += f"{score_emoji} **{sym['symbol']}**\n"
+            message += f"   • স্কোর: {sym['score']}/100\n"
+            message += f"   • ওয়েভ টাইপ: {sym['wave_type']}\n"
+            
+            if sym['price'] and sym['price'] != 'N/A':
+                message += f"   • মূল্য: {sym['price']}\n"
+            
+            message += "\n"
+        
+        message += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        message += "💡 `/watchlist` দেখে বিস্তারিত জানুন।\n"
+        message += "⚙️ অ্যালার্ট পরিবর্তন: `/setalert [স্কোর]`"
+        
+        try:
+            await self.bot.send_message(user_id, message, parse_mode='Markdown')
+            
+            # লাস্ট নোটিফিকেশন আপডেট করুন
+            if user_id in self.user_alerts:
+                self.user_alerts[user_id]['last_notification'] = datetime.now()
+                
+        except Exception as e:
+            print(f"ইউজার {user_id} কে নোটিফিকেশন পাঠাতে ব্যর্থ: {e}")
+
+    async def start_notification_worker(self):
+        """নোটিফিকেশন ওয়ার্কার শুরু করুন"""
+        if self.notification_task is None:
+            self.notification_task = asyncio.create_task(self._process_notification_queue())
+
+    async def stop_notification_worker(self):
+        """নোটিফিকেশন ওয়ার্কার বন্ধ করুন"""
+        if self.notification_task:
+            self.notification_task.cancel()
+            self.notification_task = None
+
+    def get_new_symbols_from_today(self, hf_manager=None) -> List[Dict]:
+        """আজকের নতুন সিম্বল পান"""
+        if hf_manager is None:
+            hf_manager = self.hf_manager
+        
+        today = datetime.now().strftime("%d-%m-%Y")
+        yesterday = (datetime.now() - timedelta(days=1)).strftime("%d-%m-%Y")
+        
+        today_data = hf_manager.read_csv_file(today)
+        yesterday_data = hf_manager.read_csv_file(yesterday)
+        
+        if not today_data or not yesterday_data:
+            return []
+        
+        # হেডার বাদ দিন
+        start_idx = 0
+        if today_data and today_data[0] and today_data[0][0] == "symbol":
+            start_idx = 1
+        today_content = today_data[start_idx:]
+        
+        start_idx = 0
+        if yesterday_data and yesterday_data[0] and yesterday_data[0][0] == "symbol":
+            start_idx = 1
+        yesterday_content = yesterday_data[start_idx:]
+        
+        yesterday_symbols = set([row[0] for row in yesterday_content if row])
+        new_symbols = []
+        
+        for row in today_content:
+            if row and row[0] not in yesterday_symbols:
+                score = self.get_score_value(row[9]) if len(row) > 9 else None
+                wave_type = row[1] if len(row) > 1 else 'N/A'
+                price = row[2] if len(row) > 2 else 'N/A'
+                pattern = row[3] if len(row) > 3 else 'N/A'
+                
+                new_symbols.append({
+                    'symbol': row[0],
+                    'score': score,
+                    'wave_type': wave_type,
+                    'price': price,
+                    'pattern': pattern
+                })
+        
+        return new_symbols
+
 
 # ==================== টেলিগ্রাম হ্যান্ডলার ====================
 
-async def chart_command(update: Update, context: ContextTypes.DEFAULT_TYPE, hf_manager=None, bot=None):
+async def chart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """চার্ট জেনারেট করুন"""
     args = context.args
     date = args[0] if args else datetime.now().strftime("%d-%m-%Y")
     
-    # context.bot_data থেকে নিন
-    if hf_manager is None:
-        hf_manager = context.bot_data.get('hf_manager')
-    if bot is None:
-        bot = context.bot_data.get('bot')
+    hf_manager = context.bot_data.get('hf_manager')
+    advanced_features = context.bot_data.get('advanced_features')
 
     await update.message.reply_text(f"⏳ চার্ট জেনারেট হচ্ছে ({date})...")
 
@@ -456,8 +719,7 @@ async def chart_command(update: Update, context: ContextTypes.DEFAULT_TYPE, hf_m
         await update.message.reply_text(f"📭 {date}.csv ফাইলে কোনো ডাটা নেই।")
         return
 
-    adv = AdvancedFeatures(hf_manager, bot)
-    chart = adv.generate_score_distribution_chart(all_data, date)
+    chart = advanced_features.generate_score_distribution_chart(all_data, date)
     
     if chart:
         await update.message.reply_photo(
@@ -467,7 +729,7 @@ async def chart_command(update: Update, context: ContextTypes.DEFAULT_TYPE, hf_m
     else:
         await update.message.reply_text("❌ চার্ট জেনারেট করতে ব্যর্থ হয়েছে। পর্যাপ্ত ডাটা নেই।")
 
-async def compare_command(update: Update, context: ContextTypes.DEFAULT_TYPE, hf_manager=None, bot=None):
+async def compare_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """দুটি তারিখের পোর্টফোলিও তুলনা করুন"""
     if len(context.args) < 2:
         await update.message.reply_text(
@@ -478,13 +740,11 @@ async def compare_command(update: Update, context: ContextTypes.DEFAULT_TYPE, hf
     date1 = context.args[0]
     date2 = context.args[1]
     
-    if hf_manager is None:
-        hf_manager = context.bot_data.get('hf_manager')
-
-    adv = AdvancedFeatures(hf_manager, bot)
-    result = adv.compare_portfolios(date1, date2, hf_manager)
+    hf_manager = context.bot_data.get('hf_manager')
+    advanced_features = context.bot_data.get('advanced_features')
     
-    # মেসেজ খুব লম্বা হলে ভাগ করে পাঠান
+    result = advanced_features.compare_portfolios(date1, date2, hf_manager)
+    
     if len(result) > 4000:
         parts = [result[i:i+4000] for i in range(0, len(result), 4000)]
         for part in parts:
@@ -492,49 +752,131 @@ async def compare_command(update: Update, context: ContextTypes.DEFAULT_TYPE, hf
     else:
         await update.message.reply_text(result, parse_mode='Markdown')
 
-async def notify_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """নোটিফিকেশন সিস্টেম সেটআপ"""
-    await update.message.reply_text(
-        "🔔 **নোটিফিকেশন সিস্টেম**\n\n"
-        "নতুন সিগন্যাল এলে আমি জানাবো!\n\n"
-        "📌 **সেটআপ করতে:** `/setalert [স্কোর]`\n"
-        "উদাহরণ: `/setalert 70` (70+ স্কোরের সিম্বল এলে নোটিফিকেশন)\n\n"
-        "📌 **অ্যালার্ট বন্ধ করতে:** `/stopalert`\n\n"
-        "⚠️ বর্তমানে এই ফিচারটি টেস্টিং মোডে আছে।",
-        parse_mode='Markdown'
-    )
-
 async def setalert_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """অ্যালার্ট সেট করুন"""
+    """অ্যালার্ট সেট করুন - অটো নোটিফিকেশন"""
+    advanced_features = context.bot_data.get('advanced_features')
+    
     if not context.args:
-        await update.message.reply_text("❌ স্কোর দিন। উদাহরণ: `/setalert 70`")
+        help_text = (
+            "🔔 **অটো এলার্ট সেটআপ**\n\n"
+            "নতুন সিম্বল এন্ট্রি হলে স্বয়ংক্রিয়ভাবে নোটিফিকেশন পাবেন।\n\n"
+            "**ব্যবহার:**\n"
+            "• `/setalert 70` - 70+ স্কোরের সিম্বল এলে নোটিফিকেশন\n"
+            "• `/setalert 80 wave:impulse` - ইম্পালস ওয়েভের 80+ স্কোর\n"
+            "• `/setalert 60 pattern:bullish` - বুলিশ প্যাটার্নের 60+ স্কোর\n\n"
+            "**ফিল্টার অপশন:**\n"
+            "• `wave:impulse` - শুধু ইম্পালস ওয়েভ\n"
+            "• `wave:corrective` - শুধু করেকটিভ ওয়েভ\n"
+            "• `pattern:bullish` - বুলিশ প্যাটার্ন\n"
+            "• `pattern:bearish` - বিয়ারিশ প্যাটার্ন\n\n"
+            "🛑 বন্ধ করতে: `/stopalert`\n"
+            "📋 দেখতে: `/myalerts`"
+        )
+        await update.message.reply_text(help_text, parse_mode='Markdown')
         return
 
     try:
-        min_score = int(context.args[0])
-        context.user_data['alert_score'] = min_score
-        context.user_data['alert_active'] = True
-        await update.message.reply_text(
-            f"✅ **অ্যালার্ট সেট করা হয়েছে!**\n\n"
-            f"📊 মিনিমাম স্কোর: {min_score}+\n"
-            f"🔔 নতুন সিম্বল এলে আমি আপনাকে জানাবো।\n\n"
-            f"🛑 বন্ধ করতে: `/stopalert`",
-            parse_mode='Markdown'
-        )
-    except:
-        await update.message.reply_text("❌ ভ্যালিড স্কোর দিন (সংখ্যা)।")
+        # প্যারামিটার পার্স করুন
+        min_score = None
+        filters = {}
+        
+        for arg in context.args:
+            if ':' in arg:
+                key, value = arg.split(':', 1)
+                filters[key] = value
+            else:
+                try:
+                    min_score = int(arg)
+                except:
+                    pass
+        
+        if min_score is None:
+            min_score = 70
+            
+        if min_score < 0 or min_score > 100:
+            await update.message.reply_text("❌ স্কোর 0-100 এর মধ্যে হতে হবে।")
+            return
+        
+        user_id = update.effective_user.id
+        advanced_features.add_user_alert(user_id, min_score, filters)
+        
+        # নোটিফিকেশন ওয়ার্কার শুরু করুন (যদি না শুরু থাকে)
+        await advanced_features.start_notification_worker()
+        
+        message = f"✅ **অটো এলার্ট সক্রিয় করা হয়েছে!**\n\n"
+        message += f"📊 মিনিমাম স্কোর: {min_score}+\n"
+        
+        if filters:
+            message += f"🎯 ফিল্টার:\n"
+            for key, value in filters.items():
+                message += f"   • {key}: {value}\n"
+        
+        message += f"\n🔔 নতুন সিম্বল এন্ট্রি হলে আমি আপনাকে জানাবো।\n"
+        message += f"🛑 বন্ধ করতে: `/stopalert`\n"
+        message += f"📋 পরিবর্তন করতে: `/setalert [নতুন স্কোর]`\n\n"
+        message += f"💡 **টিপ:** উচ্চ স্কোরের সিম্বল পেতে 70+ ব্যবহার করুন।"
+        
+        await update.message.reply_text(message, parse_mode='Markdown')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ অ্যালার্ট সেট করতে ব্যর্থ: {str(e)}")
 
 async def stopalert_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """অ্যালার্ট বন্ধ করুন"""
-    context.user_data['alert_active'] = False
-    context.user_data['alert_score'] = None
-    await update.message.reply_text(
-        "✅ **অ্যালার্ট বন্ধ করা হয়েছে!**\n\n"
-        "আবার চালু করতে: `/setalert [স্কোর]`",
-        parse_mode='Markdown'
-    )
+    advanced_features = context.bot_data.get('advanced_features')
+    
+    user_id = update.effective_user.id
+    alert = advanced_features.get_user_alert(user_id)
+    
+    if alert:
+        advanced_features.remove_user_alert(user_id)
+        await update.message.reply_text(
+            "✅ **অটো এলার্ট বন্ধ করা হয়েছে!**\n\n"
+            "আবার চালু করতে: `/setalert [স্কোর]`\n\n"
+            "📌 **মনে রাখবেন:** বন্ধ করার পর নতুন সিম্বল এন্ট্রি হলে আর নোটিফিকেশন পাবেন না।",
+            parse_mode='Markdown'
+        )
+    else:
+        await update.message.reply_text(
+            "🔕 **আপনার কোনো সক্রিয় অ্যালার্ট নেই**\n\n"
+            "অ্যালার্ট সেট করতে: `/setalert 70`",
+            parse_mode='Markdown'
+        )
 
-async def backtest_command(update: Update, context: ContextTypes.DEFAULT_TYPE, hf_manager=None):
+async def myalerts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """সক্রিয় অ্যালার্ট লিস্ট দেখান"""
+    advanced_features = context.bot_data.get('advanced_features')
+    
+    user_id = update.effective_user.id
+    alert = advanced_features.get_user_alert(user_id)
+    
+    if alert:
+        message = f"🔔 **আপনার সক্রিয় অ্যালার্ট**\n\n"
+        message += f"📊 মিনিমাম স্কোর: {alert['min_score']}+\n"
+        
+        if alert.get('filters'):
+            message += f"🎯 ফিল্টার:\n"
+            for key, value in alert['filters'].items():
+                message += f"   • {key}: {value}\n"
+        
+        message += f"\n📅 সেট করার সময়: {alert['created_at'].strftime('%d-%m-%Y %H:%M:%S')}\n"
+        
+        if alert.get('last_notification'):
+            message += f"🔔 শেষ নোটিফিকেশন: {alert['last_notification'].strftime('%d-%m-%Y %H:%M:%S')}\n"
+        
+        message += f"\n🛑 বন্ধ করতে: `/stopalert`\n"
+        message += f"✏️ পরিবর্তন করতে: `/setalert [নতুন স্কোর]`"
+    else:
+        message = (
+            "🔕 **কোনো সক্রিয় অ্যালার্ট নেই**\n\n"
+            "📌 অ্যালার্ট সেট করতে: `/setalert [স্কোর]`\n"
+            "উদাহরণ: `/setalert 70`\n\n"
+            "📋 বিস্তারিত জানতে: `/setalert`"
+        )
+    
+    await update.message.reply_text(message, parse_mode='Markdown')
+
+async def backtest_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """ব্যাকটেস্ট রান করুন"""
     args = context.args
     if len(args) < 2:
@@ -549,13 +891,12 @@ async def backtest_command(update: Update, context: ContextTypes.DEFAULT_TYPE, h
     end_date = args[1]
     min_score = int(args[2]) if len(args) > 2 else 70
 
-    if hf_manager is None:
-        hf_manager = context.bot_data.get('hf_manager')
+    hf_manager = context.bot_data.get('hf_manager')
+    advanced_features = context.bot_data.get('advanced_features')
 
     await update.message.reply_text(f"⏳ ব্যাকটেস্ট রান হচ্ছে... ({start_date} → {end_date})")
 
-    adv = AdvancedFeatures(hf_manager, None)
-    result = adv.backtest_strategy(start_date, end_date, min_score, hf_manager)
+    result = advanced_features.backtest_strategy(start_date, end_date, min_score, hf_manager)
     
     if len(result) > 4000:
         parts = [result[i:i+4000] for i in range(0, len(result), 4000)]
@@ -564,18 +905,17 @@ async def backtest_command(update: Update, context: ContextTypes.DEFAULT_TYPE, h
     else:
         await update.message.reply_text(result, parse_mode='Markdown')
 
-async def export_command(update: Update, context: ContextTypes.DEFAULT_TYPE, hf_manager=None):
+async def export_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """CSV এক্সপোর্ট করুন"""
     args = context.args
     date = args[0] if args else datetime.now().strftime("%d-%m-%Y")
 
-    if hf_manager is None:
-        hf_manager = context.bot_data.get('hf_manager')
+    hf_manager = context.bot_data.get('hf_manager')
+    advanced_features = context.bot_data.get('advanced_features')
 
     await update.message.reply_text(f"⏳ এক্সপোর্ট হচ্ছে ({date})...")
 
-    adv = AdvancedFeatures(hf_manager, None)
-    csv_file = adv.export_to_csv(date)
+    csv_file = advanced_features.export_to_csv(date)
     
     if csv_file:
         await update.message.reply_document(
@@ -586,10 +926,10 @@ async def export_command(update: Update, context: ContextTypes.DEFAULT_TYPE, hf_
     else:
         await update.message.reply_text(f"❌ {date}.csv ফাইল পাওয়া যায়নি।")
 
-async def weekly_command(update: Update, context: ContextTypes.DEFAULT_TYPE, hf_manager=None):
+async def weekly_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """সাপ্তাহিক রিপোর্ট দেখান"""
-    if hf_manager is None:
-        hf_manager = context.bot_data.get('hf_manager')
+    hf_manager = context.bot_data.get('hf_manager')
+    advanced_features = context.bot_data.get('advanced_features')
     
     dates = hf_manager.get_all_csv_files()
     if len(dates) < 5:
@@ -597,7 +937,134 @@ async def weekly_command(update: Update, context: ContextTypes.DEFAULT_TYPE, hf_
         return
     
     last_7_days = dates[:7]
-    adv = AdvancedFeatures(hf_manager, None)
-    result = adv.generate_weekly_report(last_7_days, hf_manager)
+    result = advanced_features.generate_weekly_report(last_7_days, hf_manager)
     
     await update.message.reply_text(result, parse_mode='Markdown')
+
+async def watchlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """নতুন সিম্বল ওয়াচলিস্ট দেখান"""
+    hf_manager = context.bot_data.get('hf_manager')
+    advanced_features = context.bot_data.get('advanced_features')
+    
+    await update.message.reply_text("⏳ ওয়াচলিস্ট লোড হচ্ছে...")
+    
+    new_symbols = advanced_features.get_new_symbols_from_today(hf_manager)
+    
+    if not new_symbols:
+        await update.message.reply_text(f"📭 আজকে কোনো নতুন সিম্বল নেই।")
+        return
+    
+    # সাজান এবং দেখান
+    new_symbols.sort(key=lambda x: x['score'] if x['score'] else 0, reverse=True)
+    
+    message = f"🆕 **নতুন সিম্বল ({datetime.now().strftime('%d-%m-%Y')})**\n\n"
+    message += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    
+    for sym in new_symbols[:20]:
+        score_emoji = "💎" if sym['score'] and sym['score'] >= 90 else \
+                     "🔥" if sym['score'] and sym['score'] >= 80 else \
+                     "✅" if sym['score'] and sym['score'] >= 70 else \
+                     "📊" if sym['score'] and sym['score'] >= 60 else "📌"
+        
+        score_text = f"{sym['score']}/100" if sym['score'] else "N/A"
+        message += f"{score_emoji} **{sym['symbol']}**\n"
+        message += f"   • স্কোর: {score_text}\n"
+        message += f"   • ওয়েভ টাইপ: {sym['wave_type']}\n"
+        
+        if sym['price'] and sym['price'] != 'N/A':
+            message += f"   • মূল্য: {sym['price']}\n"
+        
+        message += "\n"
+    
+    if len(new_symbols) > 20:
+        message += f"📌 এবং আরও {len(new_symbols) - 20}টি সিম্বল...\n"
+    
+    message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+    message += "💡 অটো এলার্ট সেট করতে: `/setalert 70`\n"
+    message += "🔔 নোটিফিকেশন পেতে: `/setalert`"
+    
+    await update.message.reply_text(message, parse_mode='Markdown')
+
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """অ্যাডভান্সড স্ট্যাটিস্টিক্স দেখান"""
+    hf_manager = context.bot_data.get('hf_manager')
+    advanced_features = context.bot_data.get('advanced_features')
+    
+    date = datetime.now().strftime("%d-%m-%Y")
+    data = hf_manager.read_csv_file(date)
+    
+    if not data:
+        await update.message.reply_text(f"❌ {date}.csv ফাইল পাওয়া যায়নি।")
+        return
+    
+    start_idx = 0
+    if data and data[0] and len(data[0]) > 0 and data[0][0] == "symbol":
+        start_idx = 1
+    all_data = data[start_idx:]
+    
+    stats = advanced_features.calculate_portfolio_stats(all_data)
+    
+    message = f"""
+📊 **পোর্টফোলিও স্ট্যাটিস্টিক্স** - {date}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📈 **মেট্রিক্স:**
+• মোট সিম্বল: {stats['total']}
+• গড় স্কোর: {stats['avg_score']:.1f}/100
+• মধ্যমা স্কোর: {stats['median_score']:.1f}/100
+• সর্বোচ্চ স্কোর: {stats['max_score']}
+• সর্বনিম্ন স্কোর: {stats['min_score']}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 **স্কোর ডিস্ট্রিবিউশন:**
+• 💎 90+: {len([s for s in [stats['strong_count']] if s >= 90])}
+• 🔥 80-89: {stats['strong_count'] - len([s for s in [stats['strong_count']] if s >= 90])}
+• ✅ 70-79: {stats['strong_count'] - (stats['strong_count'] - stats['good_count'])}
+• 📊 60-69: {stats['good_count']}
+• ⚠️ 50-59: {stats['medium_count']}
+• ❌ 40-49: {stats['weak_count']}
+• 🚫 <40: {stats['very_weak_count']}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📈 **ওয়েভ টাইপ:**
+• ইম্পালস: {stats['impulse_count']}
+• করেকটিভ: {stats['corrective_count']}
+• রেশিও: {stats['impulse_count']/stats['corrective_count'] if stats['corrective_count'] > 0 else 0:.2f}
+
+🏆 **টপ সিম্বল:**
+{chr(10).join([f"  • {sym}" for sym in stats['high_score_symbols'][:5]]) if stats['high_score_symbols'] else '  • নেই'}
+
+💡 **সুপারিশ:**
+{self.get_market_recommendation(stats)}
+"""
+    
+    await update.message.reply_text(message, parse_mode='Markdown')
+
+def get_market_recommendation(stats: Dict) -> str:
+    """মার্কেট রিকমেন্ডেশন"""
+    if stats['avg_score'] >= 70:
+        return "🔥 মার্কেট শক্তিশালী। ট্রেডিং চালিয়ে যান।"
+    elif stats['avg_score'] >= 60:
+        return "📈 মার্কেট মধ্যম। সিলেক্টিভ ট্রেডিং করুন।"
+    elif stats['avg_score'] >= 50:
+        return "⚠️ মার্কেট দুর্বল। রিস্ক ম্যানেজ করুন।"
+    else:
+        return "❌ মার্কেট খুব দুর্বল। ক্যাশে থাকুন।"
+
+# এক্সপোর্ট করার জন্য ফাংশন
+__all__ = [
+    'AdvancedFeatures',
+    'chart_command',
+    'compare_command',
+    'setalert_command',
+    'stopalert_command',
+    'myalerts_command',
+    'backtest_command',
+    'export_command',
+    'weekly_command',
+    'watchlist_command',
+    'stats_command'
+]
