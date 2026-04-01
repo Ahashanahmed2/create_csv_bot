@@ -1,4 +1,4 @@
-# trade_analytics.py - সম্পূর্ণ আপডেটেড ফাইল (সিম্বল ডিটেইল বাটন সহ)
+# trade_analytics.py - Complete Updated Version (Auto-create files on first run)
 
 import os
 import csv
@@ -13,36 +13,86 @@ class TradeAnalytics:
 
     def __init__(self, data_dir="./csv"):
         self.data_dir = data_dir
-        self.ed_file = os.path.join(data_dir, "ed.csv")
-        self.rd_file = os.path.join(data_dir, "rd.csv")
-        self.sl_file = os.path.join(data_dir, "sl.csv")
-        self.tp_file = os.path.join(data_dir, "tp.csv")
+        self.stock_dir = os.path.join(data_dir, "stock")
+        
+        # Trade files in stock folder
+        self.ed_file = os.path.join(self.stock_dir, "ed.csv")
+        self.rd_file = os.path.join(self.stock_dir, "rd.csv")
+        self.sl_file = os.path.join(self.stock_dir, "sl.csv")
+        self.tp_file = os.path.join(self.stock_dir, "tp.csv")
+        
+        # Create directories and files on first run
+        self._initialize_storage()
 
-        # CSV ফাইল চেক এবং তৈরি করুন
+    def _initialize_storage(self):
+        """Initialize storage - create folders and files on first run"""
+        # Create stock folder if not exists
+        os.makedirs(self.stock_dir, exist_ok=True)
+        print(f"✅ Stock folder ready: {self.stock_dir}")
+        
+        # Create trade files with headers if they don't exist
         self._ensure_csv_files()
+        
+        # Download daily stock data from HF if available
+        self._download_daily_stock_data()
 
     def _ensure_csv_files(self):
-        """CSV ফাইলগুলো না থাকলে তৈরি করুন"""
-        if not os.path.exists(self.data_dir):
-            os.makedirs(self.data_dir)
-            print(f"✅ Created directory: {self.data_dir}")
-
+        """Create CSV files with headers if not exist (first run only)"""
         headers = {
             self.rd_file: ['symbol', 'wave', 'subwave', 'entry', 'stop', 'tp1', 'tp2', 'tp3', 'rrr', 'score', 'insight'],
             self.ed_file: ['symbol', 'wave', 'subwave', 'entry', 'stop', 'tp1', 'tp2', 'tp3', 'rrr', 'score', 'insight', 'entry_date'],
             self.sl_file: ['symbol', 'wave', 'subwave', 'entry', 'stop', 'tp1', 'tp2', 'tp3', 'rrr', 'score', 'insight', 'sl_date'],
             self.tp_file: ['symbol', 'wave', 'subwave', 'entry', 'stop', 'tp1', 'tp2', 'tp3', 'rrr', 'score', 'insight', 'tp1_date', 'tp1_gap', 'tp2_date', 'tp2_gap', 'tp3_date', 'tp3_gap']
         }
-
+        
+        created_count = 0
         for filepath, header in headers.items():
             if not os.path.exists(filepath):
                 try:
                     with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
                         writer = csv.writer(f)
                         writer.writerow(header)
-                    print(f"✅ Created file: {filepath}")
+                    print(f"✅ Created: {os.path.basename(filepath)}")
+                    created_count += 1
                 except Exception as e:
-                    print(f"❌ Error creating {filepath}: {e}")
+                    print(f"⚠️ Could not create {filepath}: {e}")
+        
+        if created_count > 0:
+            print(f"📋 Created {created_count} new trade files")
+        else:
+            print(f"📋 All trade files already exist")
+
+    def _download_daily_stock_data(self):
+        """Download daily stock data from Hugging Face"""
+        try:
+            from huggingface_hub import hf_hub_download
+            from dotenv import load_dotenv
+            
+            load_dotenv()
+            HF_TOKEN = os.getenv("hf_token")
+            REPO_ID = "ahashanahmed/csv"
+            
+            # Try to download today's stock file
+            today = datetime.now().strftime('%d-%m-%Y')
+            stock_file = f"stock/{today}.csv"
+            
+            try:
+                hf_hub_download(
+                    repo_id=REPO_ID,
+                    filename=stock_file,
+                    repo_type="dataset",
+                    token=HF_TOKEN,
+                    local_dir="./csv",
+                    local_dir_use_symlinks=False
+                )
+                print(f"✅ Downloaded daily stock data: {stock_file}")
+            except Exception as e:
+                print(f"⚠️ No daily stock data for {today}: {e}")
+                
+        except ImportError:
+            print("⚠️ huggingface_hub not installed, skipping daily stock download")
+        except Exception as e:
+            print(f"⚠️ Could not download daily stock data: {e}")
 
     def read_csv_file(self, filepath: str) -> Optional[List[List[str]]]:
         """CSV ফাইল পড়ুন"""
@@ -55,6 +105,43 @@ class TradeAnalytics:
         except Exception as e:
             print(f"Error reading {filepath}: {e}")
             return None
+
+    def write_csv_file(self, filepath: str, data: List[List[str]]):
+        """CSV ফাইল লিখুন"""
+        try:
+            with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
+                writer = csv.writer(f)
+                writer.writerows(data)
+            return True
+        except Exception as e:
+            print(f"Error writing {filepath}: {e}")
+            return False
+
+    def add_trade(self, trade_data: Dict, file_type: str):
+        """নতুন ট্রেড যোগ করুন (ed, rd, sl, tp)"""
+        file_map = {
+            'ed': self.ed_file,
+            'rd': self.rd_file,
+            'sl': self.sl_file,
+            'tp': self.tp_file
+        }
+        
+        filepath = file_map.get(file_type)
+        if not filepath:
+            return False
+        
+        data = self.read_csv_file(filepath)
+        if not data:
+            return False
+        
+        # Get header and create new row
+        header = data[0]
+        new_row = []
+        for col in header:
+            new_row.append(trade_data.get(col, ""))
+        
+        data.append(new_row)
+        return self.write_csv_file(filepath, data)
 
     def get_score_emoji(self, score: str) -> str:
         """স্কোর অনুযায়ী ইমোজি"""
@@ -413,7 +500,11 @@ class TradeAnalytics:
         return stats
 
 
-# ==================== ইনলাইন কীবোর্ড ====================
+# ==================== Global Instance ====================
+trade_analytics = TradeAnalytics()
+
+
+# ==================== INLINE KEYBOARDS ====================
 
 def get_main_keyboard():
     """মূল মেনু কীবোর্ড"""
@@ -511,55 +602,58 @@ def get_score_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 
-# ==================== সিম্বল ডিটেইল ফাংশন ====================
+# ==================== SYMBOL DETAIL HANDLERS ====================
 
 async def show_symbol_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """সিম্বল ডিটেইল দেখান - কার্ড স্টাইলে"""
     query = update.callback_query
     await query.answer()
-    
+
     data = query.data
     parts = data.split('_')
-    
-    if parts[0] == "symdetail":
-        symbol = parts[1]
-        list_type = parts[2]  # active, tp, sl
-        
-        if list_type == "active":
-            trades = trade_analytics.get_active_trades()
-            found = [t for t in trades if t['symbol'] == symbol]
-        elif list_type == "tp":
-            tp_list = trade_analytics.get_tp_list()
-            found = [t for t in tp_list if t['symbol'] == symbol]
-        elif list_type == "sl":
-            sl_list = trade_analytics.get_sl_list()
-            found = [s for s in sl_list if s['symbol'] == symbol]
-        else:
-            found = []
-        
-        if not found:
-            await query.edit_message_text(f"❌ '{symbol}' সিম্বলটি পাওয়া যায়নি।")
-            return
-        
-        stock = found[0]
-        result = trade_analytics.format_stock_card(stock, 1)
-        
-        if list_type == "tp" and stock.get('tp_level'):
-            result += f"\n🎯 **TP{stock['tp_level']} হিট**\n"
-        elif list_type == "sl" and stock.get('sl_date'):
-            result += f"\n🛑 **স্টপ লস হিট**: {stock['sl_date']}\n"
-        
-        keyboard = [[InlineKeyboardButton("◀️ লিস্টে ফিরুন", callback_data=f"back_to_{list_type}")]]
-        await query.edit_message_text(result, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+
+    if len(parts) < 3:
+        await query.edit_message_text("❌ Invalid request")
+        return
+
+    symbol = parts[1]
+    list_type = parts[2]  # active, tp, sl
+
+    if list_type == "active":
+        trades = trade_analytics.get_active_trades()
+        found = [t for t in trades if t['symbol'] == symbol]
+    elif list_type == "tp":
+        tp_list = trade_analytics.get_tp_list()
+        found = [t for t in tp_list if t['symbol'] == symbol]
+    elif list_type == "sl":
+        sl_list = trade_analytics.get_sl_list()
+        found = [s for s in sl_list if s['symbol'] == symbol]
+    else:
+        found = []
+
+    if not found:
+        await query.edit_message_text(f"❌ '{symbol}' সিম্বলটি পাওয়া যায়নি।")
+        return
+
+    stock = found[0]
+    result = trade_analytics.format_stock_card(stock, 1)
+
+    if list_type == "tp" and stock.get('tp_level'):
+        result += f"\n🎯 **TP{stock['tp_level']} হিট**\n"
+    elif list_type == "sl" and stock.get('sl_date'):
+        result += f"\n🛑 **স্টপ লস হিট**: {stock['sl_date']}\n"
+
+    keyboard = [[InlineKeyboardButton("◀️ লিস্টে ফিরুন", callback_data=f"back_to_{list_type}")]]
+    await query.edit_message_text(result, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 
 async def back_to_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """লিস্টে ফিরে যান"""
     query = update.callback_query
     await query.answer()
-    
+
     list_type = query.data.replace("back_to_", "")
-    
+
     if list_type == "active":
         await show_active_trades(query, 1)
     elif list_type == "tp":
@@ -574,7 +668,7 @@ async def back_to_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-# ==================== আপডেটেড লিস্ট ফাংশন ====================
+# ==================== LIST DISPLAY FUNCTIONS ====================
 
 async def show_active_trades(query, page: int = 1, items_per_page: int = 3):
     """সক্রিয় ট্রেড দেখান - সিম্বল বাটন সহ"""
@@ -599,7 +693,7 @@ async def show_active_trades(query, page: int = 1, items_per_page: int = 3):
 
     result = f"📈 **সক্রিয় ট্রেড**  |  📋 {total} টি  |  📄 পৃষ্ঠা {page}/{total_pages}\n\n"
     keyboard = []
-    
+
     for i, trade in enumerate(page_trades):
         serial = start + i + 1
         keyboard.append([InlineKeyboardButton(
@@ -607,9 +701,9 @@ async def show_active_trades(query, page: int = 1, items_per_page: int = 3):
             callback_data=f"symdetail_{trade['symbol']}_active"
         )])
         result += f"`{serial}. {trade['symbol']}` → ওয়েভ: {trade['wave']} | স্কোর: {trade['score']}/100\n"
-    
+
     result += "\n💡 **সিম্বলে ক্লিক করুন বিস্তারিত দেখতে**"
-    
+
     nav_row = []
     if page > 1:
         nav_row.append(InlineKeyboardButton("◀️ পূর্ববর্তী", callback_data=f"active_list_page_{page-1}"))
@@ -645,7 +739,7 @@ async def show_tp_list(query, page: int = 1, items_per_page: int = 3):
 
     result = f"✅ **টেক প্রফিট লিস্ট**  |  📋 {total} টি  |  📄 পৃষ্ঠা {page}/{total_pages}\n\n"
     keyboard = []
-    
+
     for i, tp in enumerate(page_tps):
         serial = start + i + 1
         keyboard.append([InlineKeyboardButton(
@@ -653,9 +747,9 @@ async def show_tp_list(query, page: int = 1, items_per_page: int = 3):
             callback_data=f"symdetail_{tp['symbol']}_tp"
         )])
         result += f"`{serial}. {tp['symbol']}` → TP{tp['tp_level']} হিট | স্কোর: {tp['score']}/100\n"
-    
+
     result += "\n💡 **সিম্বলে ক্লিক করুন বিস্তারিত দেখতে**"
-    
+
     nav_row = []
     if page > 1:
         nav_row.append(InlineKeyboardButton("◀️ পূর্ববর্তী", callback_data=f"tp_list_page_{page-1}"))
@@ -691,7 +785,7 @@ async def show_sl_list(query, page: int = 1, items_per_page: int = 3):
 
     result = f"⚠️ **স্টপ লস লিস্ট**  |  📋 {total} টি  |  📄 পৃষ্ঠা {page}/{total_pages}\n\n"
     keyboard = []
-    
+
     for i, sl in enumerate(page_sls):
         serial = start + i + 1
         keyboard.append([InlineKeyboardButton(
@@ -699,9 +793,9 @@ async def show_sl_list(query, page: int = 1, items_per_page: int = 3):
             callback_data=f"symdetail_{sl['symbol']}_sl"
         )])
         result += f"`{serial}. {sl['symbol']}` → তারিখ: {sl['sl_date']} | স্কোর: {sl['score']}/100\n"
-    
+
     result += "\n💡 **সিম্বলে ক্লিক করুন বিস্তারিত দেখতে**"
-    
+
     nav_row = []
     if page > 1:
         nav_row.append(InlineKeyboardButton("◀️ পূর্ববর্তী", callback_data=f"sl_list_page_{page-1}"))
@@ -714,117 +808,7 @@ async def show_sl_list(query, page: int = 1, items_per_page: int = 3):
     await query.edit_message_text(result, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
 
 
-# ==================== বাকি হ্যান্ডলার ফাংশন (অপরিবর্তিত) ====================
-
-trade_analytics = TradeAnalytics()
-
-
-async def trade_menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "📊 **ট্রেডিং অ্যানালাইটিক্স মেনু**\n\nনিচের বাটন থেকে আপনার পছন্দের অপশন নির্বাচন করুন:",
-        reply_markup=get_main_keyboard(),
-        parse_mode='Markdown'
-    )
-
-
-async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ক্যালব্যাক কোয়েরি হ্যান্ডলার - লিস্ট পেজিনেশন এবং মেনু"""
-    query = update.callback_query
-    await query.answer()
-    data = query.data
-
-    if data == "back_main":
-        await query.edit_message_text(
-            "📊 **ট্রেডিং অ্যানালাইটিক্স মেনু**\n\nনিচের বাটন থেকে আপনার পছন্দের অপশন নির্বাচন করুন:",
-            reply_markup=get_main_keyboard(),
-            parse_mode='Markdown'
-        )
-        return
-
-    if data == "perf_main":
-        await show_performance_report(query)
-        return
-
-    if data.startswith("active_list"):
-        page = 1
-        if data.startswith("active_list_page_"):
-            page = int(data.split("_")[-1])
-        await show_active_trades(query, page)
-        return
-
-    if data.startswith("tp_list"):
-        page = 1
-        if data.startswith("tp_list_page_"):
-            page = int(data.split("_")[-1])
-        await show_tp_list(query, page)
-        return
-
-    if data.startswith("sl_list"):
-        page = 1
-        if data.startswith("sl_list_page_"):
-            page = int(data.split("_")[-1])
-        await show_sl_list(query, page)
-        return
-
-    if data == "wave_menu":
-        await query.edit_message_text(
-            "🌊 **ওয়েভ অ্যানালাইটিক্স**\n\nওয়েভ টাইপ নির্বাচন করুন:",
-            reply_markup=get_wave_keyboard(),
-            parse_mode='Markdown'
-        )
-        return
-
-    if data in ["wave_impulse", "wave_corrective", "wave_compare"]:
-        await show_wave_analysis(query, data)
-        return
-
-    if data == "gap_menu":
-        await query.edit_message_text(
-            "⏱️ **গ্যাপ অ্যানালাইটিক্স**\n\nগ্যাপ রেঞ্জ নির্বাচন করুন:",
-            reply_markup=get_gap_keyboard(),
-            parse_mode='Markdown'
-        )
-        return
-
-    if data.startswith("gap_"):
-        await show_gap_analysis(query, data)
-        return
-
-    if data == "tp_level_menu":
-        await query.edit_message_text(
-            "🎯 **টিপি লেভেল অ্যানালাইটিক্স**\n\nটিপি লেভেল নির্বাচন করুন:",
-            reply_markup=get_tp_level_keyboard(),
-            parse_mode='Markdown'
-        )
-        return
-
-    if data in ["tp_level_1", "tp_level_2", "tp_level_3", "tp_level_compare"]:
-        await show_tp_level_analysis(query, data)
-        return
-
-    if data == "score_menu":
-        await query.edit_message_text(
-            "⭐ **স্কোর অ্যানালাইটিক্স**\n\nস্কোর রেঞ্জ নির্বাচন করুন:",
-            reply_markup=get_score_keyboard(),
-            parse_mode='Markdown'
-        )
-        return
-
-    if data.startswith("score_"):
-        await show_score_analysis(query, data)
-        return
-
-    if data == "full_report":
-        await show_full_report(query)
-        return
-
-    if data == "search_symbol":
-        await query.edit_message_text(
-            "🔍 **সিম্বল সার্চ**\n\nসিম্বল লিখুন: `/searchsymbol [সিম্বল]`\n\nউদাহরণ: `/searchsymbol ADVENT`",
-            parse_mode='Markdown'
-        )
-        return
-
+# ==================== ANALYSIS FUNCTIONS ====================
 
 async def show_performance_report(query):
     active = len(trade_analytics.get_active_trades())
@@ -951,7 +935,7 @@ async def show_gap_analysis(query, data):
 💡 টিপি সিম্বল: {', '.join(stats['tp_symbols'][:5]) if stats['tp_symbols'] else 'N/A'}
 ⚠️ এসএল সিম্বল: {', '.join(stats['sl_symbols'][:3]) if stats['sl_symbols'] else 'N/A'}
 
-📊 বিশ্লেষণ: {get_gap_analysis_text(gap_key, win_rate)}
+📊 বিশ্লেষণ: {_get_gap_analysis_text(gap_key, win_rate)}
 """
 
     await query.edit_message_text(result, reply_markup=get_gap_keyboard(), parse_mode='Markdown')
@@ -1038,7 +1022,7 @@ async def show_score_analysis(query, data):
 ❌ স্টপ লস: {stats['sl']} টি
 📈 সাকসেস রেট: {win_rate:.1f}%
 
-💡 সুপারিশ: {get_score_recommendation(score_key, win_rate)}
+💡 সুপারিশ: {_get_score_recommendation(score_key, win_rate)}
 """
 
     await query.edit_message_text(result, reply_markup=get_score_keyboard(), parse_mode='Markdown')
@@ -1146,7 +1130,116 @@ async def search_symbol_command(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text(result, parse_mode='Markdown')
 
 
-def get_gap_analysis_text(gap_key: str, win_rate: float) -> str:
+async def trade_menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📊 **ট্রেডিং অ্যানালাইটিক্স মেনু**\n\nনিচের বাটন থেকে আপনার পছন্দের অপশন নির্বাচন করুন:",
+        reply_markup=get_main_keyboard(),
+        parse_mode='Markdown'
+    )
+
+
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ক্যালব্যাক কোয়েরি হ্যান্ডলার - লিস্ট পেজিনেশন এবং মেনু"""
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    if data == "back_main":
+        await query.edit_message_text(
+            "📊 **ট্রেডিং অ্যানালাইটিক্স মেনু**\n\nনিচের বাটন থেকে আপনার পছন্দের অপশন নির্বাচন করুন:",
+            reply_markup=get_main_keyboard(),
+            parse_mode='Markdown'
+        )
+        return
+
+    if data == "perf_main":
+        await show_performance_report(query)
+        return
+
+    if data.startswith("active_list"):
+        page = 1
+        if data.startswith("active_list_page_"):
+            page = int(data.split("_")[-1])
+        await show_active_trades(query, page)
+        return
+
+    if data.startswith("tp_list"):
+        page = 1
+        if data.startswith("tp_list_page_"):
+            page = int(data.split("_")[-1])
+        await show_tp_list(query, page)
+        return
+
+    if data.startswith("sl_list"):
+        page = 1
+        if data.startswith("sl_list_page_"):
+            page = int(data.split("_")[-1])
+        await show_sl_list(query, page)
+        return
+
+    if data == "wave_menu":
+        await query.edit_message_text(
+            "🌊 **ওয়েভ অ্যানালাইটিক্স**\n\nওয়েভ টাইপ নির্বাচন করুন:",
+            reply_markup=get_wave_keyboard(),
+            parse_mode='Markdown'
+        )
+        return
+
+    if data in ["wave_impulse", "wave_corrective", "wave_compare"]:
+        await show_wave_analysis(query, data)
+        return
+
+    if data == "gap_menu":
+        await query.edit_message_text(
+            "⏱️ **গ্যাপ অ্যানালাইটিক্স**\n\nগ্যাপ রেঞ্জ নির্বাচন করুন:",
+            reply_markup=get_gap_keyboard(),
+            parse_mode='Markdown'
+        )
+        return
+
+    if data.startswith("gap_"):
+        await show_gap_analysis(query, data)
+        return
+
+    if data == "tp_level_menu":
+        await query.edit_message_text(
+            "🎯 **টিপি লেভেল অ্যানালাইটিক্স**\n\nটিপি লেভেল নির্বাচন করুন:",
+            reply_markup=get_tp_level_keyboard(),
+            parse_mode='Markdown'
+        )
+        return
+
+    if data in ["tp_level_1", "tp_level_2", "tp_level_3", "tp_level_compare"]:
+        await show_tp_level_analysis(query, data)
+        return
+
+    if data == "score_menu":
+        await query.edit_message_text(
+            "⭐ **স্কোর অ্যানালাইটিক্স**\n\nস্কোর রেঞ্জ নির্বাচন করুন:",
+            reply_markup=get_score_keyboard(),
+            parse_mode='Markdown'
+        )
+        return
+
+    if data.startswith("score_"):
+        await show_score_analysis(query, data)
+        return
+
+    if data == "full_report":
+        await show_full_report(query)
+        return
+
+    if data == "search_symbol":
+        await query.edit_message_text(
+            "🔍 **সিম্বল সার্চ**\n\nসিম্বল লিখুন: `/searchsymbol [সিম্বল]`\n\nউদাহরণ: `/searchsymbol ADVENT`",
+            parse_mode='Markdown'
+        )
+        return
+
+
+# ==================== HELPER FUNCTIONS ====================
+
+def _get_gap_analysis_text(gap_key: str, win_rate: float) -> str:
     if win_rate >= 70:
         return "🔥 এই সময়ের মধ্যে টিপি হিটের সম্ভাবনা খুব বেশি। দ্রুত ট্রেড করার জন্য উপযুক্ত।"
     elif win_rate >= 50:
@@ -1157,7 +1250,7 @@ def get_gap_analysis_text(gap_key: str, win_rate: float) -> str:
         return "❌ এই সময়ের মধ্যে ট্রেড এড়িয়ে চলুন।"
 
 
-def get_score_recommendation(score_key: str, win_rate: float) -> str:
+def _get_score_recommendation(score_key: str, win_rate: float) -> str:
     recommendations = {
         'excellent': "💎 এক্সট্রিম শক্তিশালী - ট্রেড করার জন্য সেরা সিম্বল",
         'very_strong': "🔥 খুব শক্তিশালী - ট্রেড করার জন্য উপযুক্ত",
@@ -1170,15 +1263,29 @@ def get_score_recommendation(score_key: str, win_rate: float) -> str:
     return recommendations.get(score_key, "📈 সাধারণ - নিজের বিশ্লেষণ করুন")
 
 
-# ==================== হ্যান্ডলার যোগ করুন ====================
+# ==================== HANDLER FUNCTIONS ====================
 
 def add_trade_analytics_handlers(application):
     """ট্রেড অ্যানালাইটিক্স হ্যান্ডলার যোগ করুন"""
     application.add_handler(CommandHandler("trademenu", trade_menu_command))
     application.add_handler(CommandHandler("searchsymbol", search_symbol_command))
-    
+
     application.add_handler(CallbackQueryHandler(handle_callback, pattern='^(?!symdetail_|back_to_)'))
     application.add_handler(CallbackQueryHandler(show_symbol_detail, pattern='^symdetail_'))
     application.add_handler(CallbackQueryHandler(back_to_list, pattern='^back_to_'))
 
     print("✅ Trade Analytics handlers added successfully (with symbol detail buttons)")
+
+
+# ==================== TEST/DEBUG ====================
+if __name__ == "__main__":
+    print("="*60)
+    print("📊 Trade Analytics Module Loaded")
+    print("="*60)
+    print(f"📁 Data directory: {trade_analytics.data_dir}")
+    print(f"📁 Stock directory: {trade_analytics.stock_dir}")
+    print(f"📄 ed.csv: {os.path.exists(trade_analytics.ed_file)}")
+    print(f"📄 rd.csv: {os.path.exists(trade_analytics.rd_file)}")
+    print(f"📄 sl.csv: {os.path.exists(trade_analytics.sl_file)}")
+    print(f"📄 tp.csv: {os.path.exists(trade_analytics.tp_file)}")
+    print("="*60)
